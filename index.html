@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RustVM — GitHub</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #04070d;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="screen"></canvas>
+    <script type="module">
+      import init, {
+        web_start,
+        web_frame,
+        web_resize,
+        web_key,
+        web_mouse_down,
+        web_mouse_up,
+        web_mouse_move,
+        web_wheel,
+        web_paste,
+        web_cursor_style,
+      } from "./pkg/rustvm.js";
+
+      // Async results are picked up by the rAF loop each frame.
+      globalThis.host_wake = () => {};
+
+      await init();
+
+      const canvas = document.getElementById("screen");
+      const dpr = window.devicePixelRatio || 1;
+      const sizeCanvas = () => {
+        canvas.width = Math.floor(canvas.clientWidth * dpr);
+        canvas.height = Math.floor(canvas.clientHeight * dpr);
+      };
+      sizeCanvas();
+
+      // Optional convenience: localStorage.setItem("rustvm_token", "<PAT>")
+      const token = localStorage.getItem("rustvm_token") || undefined;
+      web_start("screen", 15 * dpr, token);
+
+      window.addEventListener("resize", () => {
+        sizeCanvas();
+        web_resize(canvas.width, canvas.height);
+      });
+      window.addEventListener("keydown", (e) => {
+        // Cmd+C maps to the in-app copy; other Cmd combos stay native.
+        if (e.metaKey && e.key !== "c") return;
+        if (e.ctrlKey && e.key === "v") return; // native paste
+        const ctrl = e.ctrlKey || e.metaKey;
+        if (web_key(e.key, ctrl, e.altKey, e.shiftKey)) e.preventDefault();
+      });
+      window.addEventListener("paste", (e) => {
+        const t = e.clipboardData?.getData("text");
+        if (t) web_paste(t);
+        e.preventDefault();
+      });
+      canvas.addEventListener("mousedown", (e) =>
+        web_mouse_down(e.offsetX * dpr, e.offsetY * dpr),
+      );
+      // On window so drags released outside the canvas still end.
+      window.addEventListener("mouseup", (e) =>
+        web_mouse_up(e.offsetX * dpr, e.offsetY * dpr),
+      );
+      canvas.addEventListener("mousemove", (e) => {
+        web_mouse_move(e.offsetX * dpr, e.offsetY * dpr);
+        canvas.style.cursor = web_cursor_style();
+      });
+      canvas.addEventListener(
+        "wheel",
+        (e) => {
+          web_wheel(e.offsetX * dpr, e.offsetY * dpr, e.deltaY * dpr);
+          e.preventDefault();
+        },
+        { passive: false },
+      );
+
+      const loop = (t) => {
+        web_frame(t);
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    </script>
+  </body>
+</html>

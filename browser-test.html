@@ -1,0 +1,266 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; height: 100%; background: #04070d; overflow: hidden; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <canvas id="screen"></canvas>
+    <script type="module">
+      import init, { web_start, web_frame, web_key, web_paste, web_wheel, web_debug_text } from "./pkg/rustvm.js";
+      globalThis.host_wake = () => {};
+      await init();
+      const canvas = document.getElementById("screen");
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(canvas.clientWidth * dpr);
+      canvas.height = Math.floor(canvas.clientHeight * dpr);
+      web_start("screen", 15 * dpr, undefined);
+      let running = true;
+      const loop = (t) => { web_frame(t); if (running) requestAnimationFrame(loop); };
+      requestAnimationFrame(loop);
+
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const enter = () => web_key("Enter", false, false, false);
+      const until = async (needle) => {
+        for (let i = 0; i < 600; i++) {
+          if (web_debug_text().includes(needle)) return true;
+          await sleep(100);
+        }
+        return false;
+      };
+      const params = new URLSearchParams(location.search);
+
+      // Full regression suite (?mode=suite): results go to the console,
+      // which the test-browser.ts runner captures from Chrome's stderr.
+      if (params.get("mode") === "suite") {
+        const results = [];
+        const check = (name, needle, invert = false) => {
+          const ok = web_debug_text().includes(needle) !== invert;
+          results.push(ok);
+          console.log(`${ok ? "PASS" : "FAIL"}: ${name}`);
+        };
+        const key = (k) => web_key(k, false, false, false);
+        const ctrl = (k) => web_key(k, true, false, false);
+        const type = (s) => { for (const ch of s) key(ch); };
+        const esc = () => key("Escape");
+
+        check("auth screen", "ACCESS TOKEN");
+        enter();
+        await until("owner/repo or organization:");
+        check("open overlay", "owner/repo or organization:");
+
+        // Organization browsing + Esc back.
+        web_paste("oven-sh");
+        enter();
+        await until("oven-sh/bun");
+        check("org repos listed", "oven-sh/bun");
+        check("org header", "ORG::OVEN-SH");
+
+        // Fork filter + sort.
+        check("fork card visible", "oven-sh/WebKit");
+        key("f");
+        await sleep(200);
+        check("forks hidden", "oven-sh/WebKit", true);
+        check("non-forks remain", "oven-sh/bun");
+        key("f"); // restore
+        key("s");
+        await sleep(200);
+        check("sort cycled to name", "SORT: NAME");
+        key("s");
+        key("s");
+        key("s"); // back to PUSHED
+        await sleep(100);
+
+        // Repos filter matches descriptions/language, not just names.
+        key("/");
+        type("allocator");
+        await sleep(200);
+        check("desc search match", "oven-sh/mimalloc");
+        check("desc search filters", "oven-sh/bun", true);
+        esc(); // clear filter
+        await sleep(100);
+
+        esc();
+        await until("ANONYMOUS MODE");
+        check("back from org", "ANONYMOUS MODE");
+
+        // Pagination: rust-lang has well over 100 repos, so the count chip
+        // (a standalone "shown/total" text run) can only exceed 100 when
+        // pages past the first were fetched and merged.
+        key("o");
+        await until("owner/repo or organization:");
+        web_paste("rust-lang");
+        enter();
+        await until("rust-lang/rust");
+        {
+          const count = web_debug_text()
+            .split("\n")
+            .find((l) => /^\d+\/\d+$/.test(l.trim()));
+          const total = count ? parseInt(count.trim().split("/")[1], 10) : 0;
+          const ok = total > 100;
+          results.push(ok);
+          console.log(`${ok ? "PASS" : "FAIL"}: org pagination (${total} repos)`);
+        }
+        esc();
+        await until("ANONYMOUS MODE");
+
+        // Agent window: key prompt → save key → chat surface. No Anthropic
+        // call is made; this only exercises the window itself.
+        key("i");
+        await sleep(300);
+        check("agent key prompt", "ANTHROPIC API KEY");
+        check("agent endpoint field", "API ENDPOINT");
+        web_paste("sk-ant-test");
+        key("Tab");
+        type("proxy.example.com");
+        enter();
+        await sleep(300);
+        check("agent chat ready", "DESCRIBE A GITHUB TASK");
+        check("agent model chip", "CLAUDE-OPUS-4-8");
+        check("agent endpoint chip", "· proxy.example.com");
+        esc();
+        await until("ANONYMOUS MODE");
+        check("back from agent", "ANONYMOUS MODE");
+
+        // User-account fallback.
+        key("o");
+        await until("owner/repo or organization:");
+        web_paste("octocat");
+        enter();
+        await until("octocat/Hello-World");
+        check("user fallback listed", "octocat/Hello-World");
+
+        // Open a repo, browse, open a file.
+        key("o");
+        await until("owner/repo or organization:");
+        web_paste("octocat/Hello-World");
+        enter();
+        await until("README");
+        check("tree loaded", "README");
+        enter();
+        await until("Hello World!");
+        check("file content", "Hello World!");
+
+        // Edit, commit dialog, undo.
+        key("e");
+        type("hi ");
+        await sleep(100);
+        check("typed text", "hi Hello World!");
+        ctrl("s");
+        await sleep(200);
+        check("commit overlay", "COMMIT → MASTER");
+        type("test message");
+        await sleep(100);
+        check("commit msg typed", "test message");
+        esc();
+        ctrl("z");
+        ctrl("z");
+        ctrl("z");
+        await sleep(100);
+        check("undo restored", "hi Hello World!", true);
+
+        // Branch picker.
+        esc(); // exit edit mode
+        esc(); // content → tree focus
+        key("b");
+        await sleep(300);
+        check("branch picker", "SWITCH BRANCH");
+        esc();
+
+        // Actions on a repo with CI.
+        esc(); // leave repo → confirm discard (buffer modified)
+        await sleep(200);
+        if (web_debug_text().includes("CONFIRM")) enter();
+        await until("ANONYMOUS MODE");
+        key("o");
+        await until("owner/repo or organization:");
+        web_paste("sharkdp/fd");
+        enter();
+        await until("CHANGELOG");
+        check("fd tree loaded", "CHANGELOG");
+
+        // Find-file palette over the fetched tree. ("MATCHES" is the result
+        // counter only the palette renders; dir + filename are separate
+        // text runs, so assert on the "src/" directory run.)
+        key("/");
+        await sleep(200);
+        check("find file overlay", "MATCHES");
+        type("main.rs");
+        await sleep(300);
+        check("path results", "src/");
+        enter();
+        await until("src/main.rs"); // path bar renders the full path once loaded
+        check("opened via search", "src/main.rs");
+
+        // Code search is token-gated; anonymous gets the explanatory toast.
+        key("g");
+        await sleep(200);
+        check("code search gated", "code search requires an access token");
+
+        key("a");
+        await until("WORKFLOW RUNS");
+        await until("#");
+        check("runs listed", "WORKFLOW RUNS");
+        enter();
+        await until("Set up job");
+        check("jobs/steps visible", "Set up job");
+
+        const pass = results.filter(Boolean).length;
+        console.log(`SUITE: ${pass}/${results.length} passed`);
+        document.title = pass === results.length ? "SUITE-OK" : "SUITE-FAIL";
+        running = false; // stop rAF so virtual time drains and Chrome exits
+      } else {
+      // Auto-drive: anonymous → open a repo → open the last root file
+      // (or the Actions tab with ?mode=actions).
+      const target = params.get("repo") || "octocat/Hello-World";
+      await sleep(100);
+      enter();
+      await until("owner/repo or organization:");
+      web_paste(target);
+      enter();
+      if (params.get("mode") === "find") {
+        await until("CHANGELOG");
+        web_key("/", false, false, false);
+        await sleep(200);
+        for (const ch of "main") web_key(ch, false, false, false);
+        await sleep(500);
+        document.title = "driven";
+      } else if (params.get("mode") === "org") {
+        await until("/"); // any full_name row rendered
+        await sleep(500);
+        document.title = "driven";
+      } else if (params.get("mode") !== "branches") {
+        await until(target.split("/")[1] === "fd" ? "CHANGELOG" : "README");
+      }
+      if (params.get("mode") === "branches") {
+        // Open the branch picker as soon as branches load, then wheel-scroll.
+        for (let i = 0; i < 200; i++) {
+          web_key("b", false, false, false);
+          if (web_debug_text().includes("SWITCH BRANCH")) break;
+          await sleep(100);
+        }
+        await sleep(300);
+        const ticks = parseInt(params.get("wheel") || "0", 10);
+        for (let i = 0; i < ticks; i++) {
+          web_wheel(canvas.width / 2, canvas.height / 2, 240);
+          await sleep(60);
+        }
+        await sleep(400);
+      } else if (params.get("mode") === "actions") {
+        web_key("a", false, false, false);
+        await until("#");
+        enter(); // load jobs for the selected run
+        await until("Set up job");
+      } else {
+        web_key("End", false, false, false);
+        enter(); // open last tree row
+        await until("EDIT");
+      }
+      document.title = "driven";
+      }
+    </script>
+  </body>
+</html>
