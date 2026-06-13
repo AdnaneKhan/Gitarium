@@ -1,0 +1,16 @@
+[package]
+name = "rustvm-app"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+serde_json = { workspace = true }
+js-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+rustvm-core = { workspace = true }
+rustvm-agent = { workspace = true }
+rustvm-ui = { workspace = true }

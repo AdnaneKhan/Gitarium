@@ -1,0 +1,12 @@
+[package]
+name = "rustvm-agent"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+serde_json = { workspace = true }
+rustvm-core = { workspace = true }
+web-sys = { workspace = true, features = ["Window", "Storage"] }

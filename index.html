@@ -33,6 +33,7 @@
         web_paste,
         web_cursor_style,
         web_set_font_px,
+        web_context_menu,
       } from "./pkg/rustvm.js";
 
       // Async results are queued wasm-side and drained by web_frame; rAF is
@@ -53,7 +54,13 @@
 
       // Optional convenience: localStorage.setItem("rustvm_token", "<PAT>")
       const token = localStorage.getItem("rustvm_token") || undefined;
-      web_start("screen", 15 * dpr(), token);
+      // API proxy: the server (serve.ts --api-proxy) injects a path here;
+      // route GitHub calls over a WebSocket to it. Absent → calls go direct.
+      const pp = globalThis.__RUSTVM_PROXY__;
+      const proxyUrl = pp
+        ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host + pp
+        : undefined;
+      web_start("screen", 15 * dpr(), token, proxyUrl);
 
       const resized = () => {
         sizeCanvas();
@@ -135,6 +142,10 @@
         lastY = e.offsetY;
         web_mouse_move(e.offsetX * dpr(), e.offsetY * dpr());
         canvas.style.cursor = web_cursor_style();
+      });
+      canvas.addEventListener("contextmenu", (e) => {
+        e.preventDefault(); // suppress the native menu; show ours
+        web_context_menu(e.offsetX * dpr(), e.offsetY * dpr());
       });
       // On window so drags released outside the canvas still end.
       window.addEventListener("mouseup", (e) => {

@@ -1,5 +1,6 @@
 /target
 /pkg
+crates/*/pkg
 /dist
 .DS_Store
 .env*

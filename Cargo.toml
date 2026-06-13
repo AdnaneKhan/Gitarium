@@ -1,12 +1,12 @@
-[package]
-name = "rustvm"
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
+[workspace.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
@@ -15,42 +15,67 @@ serde_json = "1"
 fontdue = "0.9"
 base64 = "0.22"
 jaq-core = "3.1.0"
-# Note: jaq adds ~1.5MB to the wasm (jq engine + jiff tzdb via jaq-std's
-# `time` feature, which jaq-json's hard dependency re-enables either way).
+# jaq-std is vendored (vendor/jaq-std) via [patch.crates-io] below: a slim
+# fork that drops jiff's bundled IANA tzdb (~260 KB of dead weight on wasm).
+# See vendor/jaq-std/VENDOR.md.
 jaq-std = "3.0.1"
 jaq-json = "2.0.1"
 shlex = "2.0.1"
 regex-lite = "0.1.9"
 # Inflate-only at runtime (knowledge bundle); deflate happens in build.rs.
 miniz_oxide = "0.8"
+web-sys = "0.3"
+# Local crates, layered by functionality (see each crate's lib.rs header).
+rustvm-core = { path = "crates/core" }
+rustvm-agent = { path = "crates/agent" }
+rustvm-ui = { path = "crates/ui" }
+rustvm-app = { path = "crates/app" }
+rustvm-render = { path = "crates/render" }
 
-[build-dependencies]
-miniz_oxide = "0.8"
+# ---------------------------------------------------------------------------
+# Root package: the browser (web + interactive agent) wasm target. Other
+# targets are separate cdylibs under crates/ (e.g. crates/headless).
+# ---------------------------------------------------------------------------
+[package]
+name = "rustvm"
+version.workspace = true
+edition.workspace = true
 
-[dependencies.web-sys]
-version = "0.3"
-features = [
-  "Clipboard",
-  "Headers",
-  "Navigator",
-  "Request",
-  "RequestInit",
-  "Response",
-  "Storage",
-  "Window",
-  "Document",
-  "Element",
-  "HtmlCanvasElement",
-  "CanvasRenderingContext2d",
-  "ImageData",
-  "WebGlRenderingContext",
-  "WebGlBuffer",
-  "WebGlProgram",
-  "WebGlShader",
-  "WebGlTexture",
-  "WebGlUniformLocation",
-]
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+rustvm-core = { workspace = true }
+rustvm-ui = { workspace = true }
+rustvm-app = { workspace = true }
+rustvm-render = { workspace = true }
+web-sys = { workspace = true, features = ["Window", "Navigator", "Clipboard"] }
 
 [profile.release]
-opt-level = "s"
-lto = true
+opt-level = "z"      # optimize for size (vs "s"; measured smaller here)
+lto = "fat"          # whole-program inlining across all crates
+codegen-units = 1    # one unit → best cross-function size optimization
+panic = "abort"      # drop unwind tables + landing pads (wasm traps anyway)
+strip = true
+
+# wasm-pack runs its managed wasm-opt over the bindgen output; -Oz optimizes
+# aggressively for size (default is -O). The --enable-* flags let wasm-opt's
+# validator accept the wasm features modern rustc emits by default (without
+# them it rejects the binary and skips optimization).
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = [
+    '-Oz',
+    '--enable-bulk-memory',
+    '--enable-nontrapping-float-to-int',
+    '--enable-sign-ext',
+    '--enable-mutable-globals',
+    '--enable-reference-types',
+    '--enable-multivalue',
+]
+
+# Slim jaq-std fork: jiff without the bundled tzdb (~260 KB off the wasm).
+# See vendor/jaq-std/VENDOR.md.
+[patch.crates-io]
+jaq-std = { path = "vendor/jaq-std" }

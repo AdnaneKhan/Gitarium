@@ -9,6 +9,8 @@
 // A GITHUB_TOKEN in .env.test authenticates the suite pass so it isn't
 // throttled by the anonymous 60 req/hour rate limit.
 
+import { makeProxy } from "./proxy-server";
+
 const PORT = 8123;
 const CHROME =
   process.env.CHROME ??
@@ -83,6 +85,54 @@ async function run(label: string, query: string, shot: string): Promise<boolean>
   return true;
 }
 
+// Proxy transport check (no Chrome): a Bun WebSocket client drives the same
+// proxy `serve.ts --api-proxy` exposes, against the live API. This covers the
+// wire protocol + token handling that the headless suite cannot — Chrome's
+// virtual time doesn't pause for WebSocket frames, so the budget expires before
+// proxied replies land. The WASM-side client is covered by manual browser runs.
+async function proxyTransport(token?: string): Promise<boolean> {
+  const proxy = makeProxy(token); // token present → exercises server-side override
+  const srv = Bun.serve({
+    port: PORT + 1,
+    websocket: proxy.websocket,
+    fetch(req, server) {
+      return new URL(req.url).pathname === proxy.path
+        ? server.upgrade(req)
+          ? undefined
+          : new Response("expected a websocket upgrade", { status: 426 })
+        : new Response("ok");
+    },
+  });
+  const reply: any = await new Promise((resolve) => {
+    const ws = new WebSocket(`ws://localhost:${PORT + 1}${proxy.path}`);
+    const timer = setTimeout(() => resolve({ status: 0, error: "timeout" }), 15000);
+    ws.onopen = () =>
+      ws.send(JSON.stringify({
+        id: 1, method: "GET", path: "/repos/octocat/Hello-World",
+        headers: { Accept: "application/vnd.github+json" }, body: null,
+      }));
+    ws.onmessage = (e) => {
+      clearTimeout(timer);
+      ws.close();
+      resolve(JSON.parse(String(e.data)));
+    };
+    ws.onerror = () => resolve({ status: 0, error: "socket error" });
+  });
+  srv.stop();
+  const ok =
+    reply.status === 200 &&
+    (() => {
+      try {
+        return JSON.parse(reply.body).full_name === "octocat/Hello-World";
+      } catch {
+        return false;
+      }
+    })();
+  console.log("--- api proxy transport ---");
+  console.log(ok ? "PASS: github over websocket" : `FAIL: proxy (status ${reply.status}${reply.error ? ", " + reply.error : ""})`);
+  return ok;
+}
+
 // `--smoke` runs only the API-free boot checks — the CI default when no
 // token is configured, since the full suite drives the live GitHub API.
 const smokeOnly = process.argv.includes("--smoke");
@@ -102,6 +152,7 @@ if (smokeOnly) {
   ok = await run("full suite (webgl2)", suiteQuery, "/tmp/rustvm-suite.png");
 }
 for (const b of boots) ok = (await b()) && ok;
+ok = (await proxyTransport(token)) && ok;
 
 server.stop();
 if (!ok) process.exitCode = 1;

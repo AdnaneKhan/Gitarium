@@ -11,8 +11,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
+permissions: read-all
 
 env:
   CARGO_TERM_COLOR: always
@@ -40,11 +39,16 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Test (native)
-        run: cargo test
+        run: cargo test --workspace
 
-      # Compiles the crate for wasm32 and emits pkg/ (rustvm.js + rustvm_bg.wasm).
-      - name: Build wasm (release)
+      # Web target: emits pkg/ (rustvm.js + rustvm_bg.wasm) for the browser app.
+      - name: Build web wasm (release)
         run: wasm-pack build --target web
+
+      # Headless-agent target: a separate, smaller cdylib (agent + foundation,
+      # no renderer) → crates/headless/pkg.
+      - name: Build headless wasm (release)
+        run: wasm-pack build crates/headless --target web
 
       # Inlines glue + base64 wasm into a single self-contained dist/rustvm.html.
       - name: Build single-file dist.html
@@ -68,6 +72,14 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
+      - name: Upload headless wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustvm-headless-wasm
+          path: crates/headless/pkg/rustvm_headless_bg.wasm
+          compression-level: 0
+          if-no-files-found: error
+
   # Optional headless-Chrome run of the WebGL/Canvas2D harness. Non-blocking
   # (continue-on-error) because the live-API suite hits api.github.com and can
   # flake or rate-limit. The API-free boot smokes always run; the full suite
@@ -81,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
-      TEST_TOKEN: ${{ secrets.RUSTVM_TEST_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.RUSTVM_TEST_TOKEN }}
     steps:
       - uses: actions/checkout@v6
 
@@ -104,15 +116,16 @@ jobs:
         run: wasm-pack build --target web
 
       # Chrome is preinstalled on ubuntu-latest; the harness reads $CHROME.
-      - name: Browser suite (live API + boot smokes)
-        if: env.TEST_TOKEN != ''
-        env:
-          CHROME: google-chrome
-          GITHUB_TOKEN: ${{ env.TEST_TOKEN }}
-        run: bun test-browser.ts
-
-      - name: Browser boot smokes (API-free)
-        if: env.TEST_TOKEN == ''
+      # Boot smokes are API-free, so they run on every push/PR (incl. forks,
+      # where no secret is available). The full live-API suite runs only when
+      # the test token is configured.
+      - name: Boot smokes (no API)
         env:
           CHROME: google-chrome
         run: bun test-browser.ts --smoke
+
+      - name: Browser suite (live API)
+        if: env.GITHUB_TOKEN != ''
+        env:
+          CHROME: google-chrome
+        run: bun test-browser.ts

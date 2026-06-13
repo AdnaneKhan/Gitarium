@@ -1,0 +1,360 @@
+//! Shared state types: routes, list sources, focus, overlays, hit-regions,
+//! layout, and the open-file model.
+
+use crate::github::Repo;
+use crate::highlight::{LangSpec, LineState};
+use crate::ui::grid::Rect;
+use crate::ui::lineinput::LineInput;
+
+use super::editor::Editor;
+
+pub enum Loadable<T> {
+    Idle,
+    Loading,
+    Ready(T),
+    Failed(String),
+}
+
+impl<T> Loadable<T> {
+    pub fn ready(&self) -> Option<&T> {
+        match self {
+            Loadable::Ready(t) => Some(t),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    Auth,
+    Repos,
+    Repo,
+    Agent,
+}
+
+/// Whose repositories the Repos screen is listing.
+#[derive(Clone, PartialEq, Eq)]
+pub enum RepoSource {
+    Mine,
+    Org(String),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RepoSort {
+    Pushed,
+    Name,
+    Stars,
+    Forks,
+}
+
+impl RepoSort {
+    pub fn label(self) -> &'static str {
+        match self {
+            RepoSort::Pushed => "PUSHED",
+            RepoSort::Name => "NAME",
+            RepoSort::Stars => "STARS",
+            RepoSort::Forks => "FORKS",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    Code,
+    Actions,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RepoFocus {
+    Tree,
+    Content,
+}
+
+/// What a code-search palette searches, and how opening a hit behaves.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SearchScope {
+    /// Within the currently-open repo; opening a hit loads the file here.
+    Repo,
+    /// Across GitHub (the Repos screen); opening a hit fetches that repo,
+    /// then jumps to the file.
+    Global,
+}
+
+/// A pending change to one path in the staged workspace.
+#[derive(Clone)]
+pub enum Staged {
+    /// Add a new file or modify an existing one: the full new file text.
+    Upsert(String),
+    /// Remove the path from the tree.
+    Delete,
+}
+
+/// Author/committer/date overrides for the next commit. Empty name+email
+/// falls back to the token's GitHub identity; an empty date means "now".
+/// Persisted on the `App` so the values stick across commits in a session.
+#[derive(Clone, Default)]
+pub struct CommitIdentity {
+    pub author_name: String,
+    pub author_email: String,
+    pub committer_name: String,
+    pub committer_email: String,
+    pub date: String,
+}
+
+/// Where a commit lands: the current branch, or a brand-new branch / tag
+/// pointed at the new commit. Cycled by the commit dialog's target chip.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CommitTarget {
+    Current,
+    NewBranch,
+    NewTag,
+}
+
+impl CommitTarget {
+    pub fn next(self) -> Self {
+        match self {
+            CommitTarget::Current => CommitTarget::NewBranch,
+            CommitTarget::NewBranch => CommitTarget::NewTag,
+            CommitTarget::NewTag => CommitTarget::Current,
+        }
+    }
+    pub fn prev(self) -> Self {
+        self.next().next()
+    }
+}
+
+/// The multi-field commit overlay: message, the identity overrides, and the
+/// destination. `field` selects the focused control (0 = message, 1‥5 =
+/// override rows, 6 = target chip, 7 = new ref name).
+pub struct CommitForm {
+    pub message: LineInput,
+    pub author_name: LineInput,
+    pub author_email: LineInput,
+    pub committer_name: LineInput,
+    pub committer_email: LineInput,
+    pub date: LineInput,
+    /// Destination: current branch, or a new branch / tag.
+    pub target: CommitTarget,
+    /// Name for the new branch / tag (unused when target is Current).
+    pub new_ref: LineInput,
+    pub field: usize,
+}
+
+impl CommitForm {
+    /// Focusable controls (Tab cycles through these).
+    pub const FIELDS: usize = 8;
+    /// `field` index of the target chip and the new-ref name input.
+    pub const TARGET_FIELD: usize = 6;
+    pub const REF_FIELD: usize = 7;
+
+    /// Seed a fresh form, pre-filling the override rows from `id`.
+    pub fn new(id: &CommitIdentity) -> Self {
+        let mk = |s: &str| {
+            let mut l = LineInput::new(false);
+            if !s.is_empty() {
+                l.insert(s);
+            }
+            l
+        };
+        CommitForm {
+            message: LineInput::new(false),
+            author_name: mk(&id.author_name),
+            author_email: mk(&id.author_email),
+            committer_name: mk(&id.committer_name),
+            committer_email: mk(&id.committer_email),
+            date: mk(&id.date),
+            target: CommitTarget::Current,
+            new_ref: LineInput::new(false),
+            field: 0,
+        }
+    }
+
+    /// The focused text input, for key routing. The target chip (field 6)
+    /// isn't a text input, so it maps to a harmless field — the key handler
+    /// special-cases it before reaching here.
+    pub fn focused(&mut self) -> &mut LineInput {
+        match self.field {
+            1 => &mut self.author_name,
+            2 => &mut self.author_email,
+            3 => &mut self.committer_name,
+            4 => &mut self.committer_email,
+            5 => &mut self.date,
+            7 => &mut self.new_ref,
+            _ => &mut self.message,
+        }
+    }
+
+    /// Snapshot the override rows (trimmed) to persist back onto the `App`.
+    pub fn identity(&self) -> CommitIdentity {
+        let t = |l: &LineInput| l.text.trim().to_string();
+        CommitIdentity {
+            author_name: t(&self.author_name),
+            author_email: t(&self.author_email),
+            committer_name: t(&self.committer_name),
+            committer_email: t(&self.committer_email),
+            date: t(&self.date),
+        }
+    }
+}
+
+/// A floating right-click menu, anchored at (`x`, `y`) in device pixels.
+pub struct ContextMenu {
+    pub x: f32,
+    pub y: f32,
+    pub items: Vec<MenuItem>,
+}
+
+pub struct MenuItem {
+    pub label: String,
+    pub action: MenuAction,
+}
+
+/// What a context-menu item does when chosen.
+#[derive(Clone)]
+pub enum MenuAction {
+    /// Open the new-file prompt, pre-filled with this directory prefix.
+    NewFile(String),
+    /// Stage a deletion of this path.
+    Delete(String),
+    /// Drop this path's staged change.
+    Unstage(String),
+}
+
+pub enum Overlay {
+    Commit(CommitForm),
+    BranchPick { sel: usize, scroll: usize },
+    OpenRepo(LineInput),
+    /// New-file prompt: the path to create as a staged, empty file.
+    NewFile(LineInput),
+    /// New-branch modal: pick the base branch (index into `branches`) and the
+    /// new branch name; Create makes the ref immediately.
+    NewBranch { name: LineInput, base: usize },
+    /// Find-file palette over the already-fetched recursive tree.
+    FileSearch { input: LineInput, sel: usize },
+    /// GitHub code-search palette (token required; default branch only).
+    /// `scope` selects repo-local vs. global search.
+    CodeSearch {
+        input: LineInput,
+        sel: usize,
+        /// Last submitted query — Enter searches when the input differs,
+        /// opens the selected hit when it matches.
+        searched: String,
+        results: Loadable<Vec<crate::github::CodeHit>>,
+        scope: SearchScope,
+        /// 1-based index of the last page appended (0 before the first
+        /// result lands); "load more" then requests `page + 1`.
+        page: u32,
+        /// Another page may exist — accumulated hits are below the query's
+        /// total and GitHub's 1000-result search cap. Drives the load-more
+        /// trigger and the hint.
+        more: bool,
+        /// A next-page fetch is in flight: suppresses duplicate load-more
+        /// requests and shows a "loading more" hint.
+        loading_more: bool,
+    },
+    Help,
+    Confirm { msg: String, action: ConfirmAction },
+}
+
+#[derive(Clone)]
+pub enum ConfirmAction {
+    LeaveRepo,
+    SwitchBranch(String),
+    OpenFile(String),
+    /// An async `RepoOpened` landed while the current file had unsaved
+    /// edits; opening the fetched repo needs the usual confirm. `then_open`
+    /// carries a file path to jump to once the repo is open (global code
+    /// search), or None for a plain repo open.
+    OpenRepo { repo: Repo, then_open: Option<String> },
+}
+
+/// Mouse hit-regions, rebuilt on every draw.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Click {
+    Repo(usize), // index into the *filtered* repo list
+    TreeRow(usize),
+    Tab(Tab),
+    BranchBtn,
+    Run(usize),
+    /// Direct editor position: row + visual cell x (converted to a char
+    /// column via x_to_col).
+    EditorPos { row: usize, cell_x: usize },
+    OverlayItem(usize),
+    EditBtn,
+    StageBtn,
+    CommitBtn,
+    NewFileBtn,
+    /// The commit dialog's destination chip (cycles current/new branch/tag).
+    CommitCycleTarget,
+    /// "+ New branch" in the branch picker → opens the new-branch modal.
+    NewBranchBtn,
+    /// The new-branch modal's base chip (cycles the base branch).
+    CycleBranchBase,
+    AgentClear,
+    AgentResetKey,
+    /// A hyperlink in the agent transcript: index into the px view's
+    /// per-frame url table. Opened by the view layer (browser `window.open`),
+    /// not `perform_click` — the app crate has no DOM access.
+    OpenUrl(usize),
+    SortCycle,
+    SortDir,
+    ToggleForks,
+    ToggleArchived,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Scroll {
+    Repos,
+    Tree,
+    Content,
+    Runs,
+    Jobs,
+    Overlay,
+    Agent,
+}
+
+#[derive(Clone, Copy)]
+pub struct Layout {
+    pub repos_h: usize,
+    /// Cards per row in the repo grid (keyboard navigation is 2D).
+    pub repos_cols: usize,
+    pub tree_h: usize,
+    pub content_text: Rect,
+    pub gutter: i32,
+    pub runs_h: usize,
+    pub jobs_h: usize,
+    pub overlay_h: usize,
+}
+
+impl Default for Layout {
+    fn default() -> Self {
+        Layout {
+            repos_h: 0,
+            repos_cols: 1,
+            tree_h: 0,
+            content_text: Rect::new(0, 0, 0, 0),
+            gutter: 0,
+            runs_h: 0,
+            jobs_h: 0,
+            overlay_h: 0,
+        }
+    }
+}
+
+pub struct TreeRow {
+    pub path: String,
+    pub name: String,
+    pub depth: usize,
+    pub is_dir: bool,
+}
+
+pub struct OpenFile {
+    pub path: String,
+    pub sha: String,
+    pub editor: Editor,
+    pub lang: Option<&'static LangSpec>,
+    pub line_states: Vec<LineState>,
+    pub binary: bool,
+    pub size: u64,
+    pub editing: bool,
+}

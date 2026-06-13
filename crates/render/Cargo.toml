@@ -1,0 +1,36 @@
+[package]
+name = "rustvm-render"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+fontdue = { workspace = true }
+js-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
+rustvm-core = { workspace = true }
+rustvm-agent = { workspace = true }
+rustvm-ui = { workspace = true }
+rustvm-app = { workspace = true }
+
+[dependencies.web-sys]
+workspace = true
+features = [
+  "Window",
+  "Document",
+  "Element",
+  "Storage",
+  "Navigator",
+  "Clipboard",
+  "HtmlCanvasElement",
+  "CanvasRenderingContext2d",
+  "ImageData",
+  "WebGlRenderingContext",
+  "WebGlBuffer",
+  "WebGlProgram",
+  "WebGlShader",
+  "WebGlTexture",
+  "WebGlUniformLocation",
+]

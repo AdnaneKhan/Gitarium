@@ -1,0 +1,23 @@
+[package]
+name = "rustvm-headless"
+version.workspace = true
+edition.workspace = true
+
+# Headless-only wasm target: exports just `agent_run_headless`, pulling in
+# the agent + foundation but no UI/rendering. Build with:
+#   wasm-pack build crates/headless --target web
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+js-sys = { workspace = true }
+serde_json = { workspace = true }
+rustvm-agent = { workspace = true }
+
+# Size-optimized wasm-opt pass. --all-features lets wasm-opt accept the wasm
+# features the size profile (lto=fat, opt-level=z) emits (bulk-memory, sign
+# extension, …); without it the default validator rejects them.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ['-Oz', '--all-features']

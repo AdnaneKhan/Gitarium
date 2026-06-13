@@ -188,8 +188,6 @@ dependencies = [
 [[package]]
 name = "jaq-std"
 version = "3.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bdc5a74b0feeb5e6a1dc2dd08c34280a61e37668d10a6a3b27ad69d0fb9ce2e"
 dependencies = [
  "aho-corasick",
  "base64",
@@ -209,7 +207,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4603d3033e49e2b0e31229fcab20a5d40089c607d975cd9c80551dc69eed9102"
 dependencies = [
  "jiff-static",
- "jiff-tzdb-platform",
  "log",
  "portable-atomic",
  "portable-atomic-util",
@@ -226,21 +223,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "jiff-tzdb"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c900ef84826f1338a557697dc8fc601df9ca9af4ac137c7fb61d4c6f2dfd3076"
-
-[[package]]
-name = "jiff-tzdb-platform"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "875a5a69ac2bab1a891711cf5eccbec1ce0341ea805560dcd90b7a2e925132e8"
-dependencies = [
- "jiff-tzdb",
 ]
 
 [[package]]
@@ -382,8 +364,42 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 name = "rustvm"
 version = "0.1.0"
 dependencies = [
+ "rustvm-app",
+ "rustvm-core",
+ "rustvm-render",
+ "rustvm-ui",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "rustvm-agent"
+version = "0.1.0"
+dependencies = [
+ "rustvm-core",
+ "serde_json",
+ "web-sys",
+]
+
+[[package]]
+name = "rustvm-app"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "rustvm-agent",
+ "rustvm-core",
+ "rustvm-ui",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "rustvm-core"
+version = "0.1.0"
+dependencies = [
  "base64",
- "fontdue",
  "jaq-core",
  "jaq-json",
  "jaq-std",
@@ -397,6 +413,35 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
 ]
+
+[[package]]
+name = "rustvm-headless"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "rustvm-agent",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "rustvm-render"
+version = "0.1.0"
+dependencies = [
+ "fontdue",
+ "js-sys",
+ "rustvm-agent",
+ "rustvm-app",
+ "rustvm-core",
+ "rustvm-ui",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "rustvm-ui"
+version = "0.1.0"
 
 [[package]]
 name = "ryu"

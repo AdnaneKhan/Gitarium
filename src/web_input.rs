@@ -2,9 +2,10 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::app::Route;
-use crate::ui::input::{Event, Key, Mods};
-use crate::{host_wake, with_host};
+use crate::with_host;
+use rustvm_app::app::Route;
+use rustvm_app::host_wake;
+use rustvm_ui::ui::input::{Event, Key, Mods};
 
 /// Returns true when the key was consumed (host should preventDefault).
 #[wasm_bindgen]
@@ -87,6 +88,12 @@ pub fn web_mouse(px_x: f32, px_y: f32) {
 #[wasm_bindgen]
 pub fn web_mouse_move(px_x: f32, px_y: f32) {
     with_host(|h| h.view.on_mouse_move(&mut h.app, px_x, px_y));
+}
+
+/// Right-click: open the tree context menu (or dismiss it).
+#[wasm_bindgen]
+pub fn web_context_menu(px_x: f32, px_y: f32) {
+    with_host(|h| h.view.on_context_menu(&mut h.app, px_x, px_y));
 }
 
 #[wasm_bindgen]

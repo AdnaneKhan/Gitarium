@@ -1,79 +1,46 @@
-//! RustVM — a GitHub client in Rust/WASM with a GPU-rendered browser UI
-//! (px module: WebGL2/WebGL1 with a Canvas2D software fallback, SDF
-//! shapes, multi-font atlas). The former terminal mode was removed; a
-//! headless background-agent mode may replace it later.
+//! `rustvm` — the browser (web + interactive agent) wasm target. Wires the
+//! app state machine (rustvm-app) to the GPU renderer (rustvm-render) behind
+//! a `Host`, and exports the `web_*` entrypoints the JS host drives. Pure
+//! functionality lives in the workspace crates; this crate is just the
+//! browser entrypoint. The headless-agent target is a separate cdylib
+//! (crates/headless) so each wasm bundles only what it needs.
 
-mod agent;
-mod app;
-mod fetch;
-mod github;
-mod highlight;
-mod knowledge;
-mod px;
-mod sh;
-mod ui;
-mod vfs;
 mod web_input;
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
 
 use wasm_bindgen::prelude::*;
 
-use app::{App, Msg};
-
-#[wasm_bindgen]
-extern "C" {
-    /// Provided by the host on globalThis. Called when an async message
-    /// lands so the host schedules a frame.
-    #[wasm_bindgen(js_name = host_wake)]
-    pub(crate) fn host_wake();
-}
+use rustvm_app::app::App;
+use rustvm_app::drain_msgs;
+use rustvm_core::knowledge;
+use rustvm_render::px;
 
 thread_local! {
     static HOST: RefCell<Option<Host>> = RefCell::new(None);
-    static MSGS: RefCell<VecDeque<Msg>> = RefCell::new(VecDeque::new());
 }
 
-struct Host {
-    app: App,
-    renderer: px::render::Renderer,
-    view: px::view::View,
-}
-
-/// Run a future to completion off the event loop and enqueue its message.
-pub(crate) fn spawn_msg<F>(fut: F)
-where
-    F: std::future::Future<Output = Msg> + 'static,
-{
-    wasm_bindgen_futures::spawn_local(async move {
-        let msg = fut.await;
-        MSGS.with(|q| q.borrow_mut().push_back(msg));
-        host_wake();
-    });
+pub(crate) struct Host {
+    pub app: App,
+    pub renderer: px::render::Renderer,
+    pub view: px::view::View,
 }
 
 pub(crate) fn with_host<R>(f: impl FnOnce(&mut Host) -> R) -> Option<R> {
     HOST.with(|h| h.borrow_mut().as_mut().map(f))
 }
 
-fn drain_msgs(app: &mut App) {
-    loop {
-        let m = MSGS.with(|q| q.borrow_mut().pop_front());
-        match m {
-            Some(m) => app.on_msg(m),
-            None => break,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Browser host
-// ---------------------------------------------------------------------------
-
 #[wasm_bindgen]
-pub fn web_start(canvas_id: &str, font_px: f32, token: Option<String>) -> Result<(), JsValue> {
+pub fn web_start(
+    canvas_id: &str,
+    font_px: f32,
+    token: Option<String>,
+    proxy_url: Option<String>,
+) -> Result<(), JsValue> {
     knowledge::seed();
+    // Enable the GitHub API proxy when the host passes a ws(s):// endpoint
+    // (server-injected); absent → calls go straight to api.github.com.
+    rustvm_core::proxy::init(proxy_url);
     let renderer = px::render::Renderer::new(canvas_id).map_err(|e| JsValue::from_str(&e))?;
     let view = px::view::View::new(font_px / 15.0);
     let host = Host { app: App::new(token), renderer, view };
@@ -130,4 +97,3 @@ pub fn web_debug_text() -> String {
     })
     .unwrap_or_default()
 }
-
