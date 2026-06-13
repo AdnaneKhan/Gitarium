@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>RustVM — GitHub</title>
+    <title>Gitarium — GitHub</title>
     <style>
       html,
       body {
@@ -34,7 +34,7 @@
         web_cursor_style,
         web_set_font_px,
         web_context_menu,
-      } from "./pkg/rustvm.js";
+      } from "./pkg/gitarium.js";
 
       // Async results are queued wasm-side and drained by web_frame; rAF is
       // paused in hidden tabs, so schedule an explicit frame on wake.
@@ -52,11 +52,11 @@
       };
       sizeCanvas();
 
-      // Optional convenience: localStorage.setItem("rustvm_token", "<PAT>")
-      const token = localStorage.getItem("rustvm_token") || undefined;
+      // Optional convenience: localStorage.setItem("gitarium_token", "<PAT>")
+      const token = localStorage.getItem("gitarium_token") || undefined;
       // API proxy: the server (serve.ts --api-proxy) injects a path here;
       // route GitHub calls over a WebSocket to it. Absent → calls go direct.
-      const pp = globalThis.__RUSTVM_PROXY__;
+      const pp = globalThis.__GITARIUM_PROXY__;
       const proxyUrl = pp
         ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host + pp
         : undefined;

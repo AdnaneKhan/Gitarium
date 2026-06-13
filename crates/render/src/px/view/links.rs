@@ -154,38 +154,3 @@ pub(super) fn push_url(urls: &mut Vec<String>, url: &str) -> usize {
     urls.push(url.to_string());
     urls.len() - 1
 }
-
-/// Open a transcript hyperlink in a new browser tab. No-op off the web
-/// target so the native `px` test suite stays linkable.
-#[cfg(target_arch = "wasm32")]
-pub(super) fn open_url(url: &str) {
-    if let Some(w) = web_sys::window() {
-        let _ = w.open_with_url_and_target(url, "_blank");
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub(super) fn open_url(_url: &str) {}
-
-/// Save `text` as a downloaded file via a transient object-URL anchor click.
-/// No-op off the web target.
-#[cfg(target_arch = "wasm32")]
-pub(super) fn download_text(filename: &str, text: &str) {
-    use wasm_bindgen::{JsCast, JsValue};
-    let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
-    let parts = js_sys::Array::new();
-    parts.push(&JsValue::from_str(text));
-    let Ok(blob) = web_sys::Blob::new_with_str_sequence(&parts) else { return };
-    let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) else { return };
-    if let Ok(a) = doc.create_element("a") {
-        let _ = a.set_attribute("href", &url);
-        let _ = a.set_attribute("download", filename);
-        if let Some(el) = a.dyn_ref::<web_sys::HtmlElement>() {
-            el.click();
-        }
-    }
-    let _ = web_sys::Url::revoke_object_url(&url);
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub(super) fn download_text(_filename: &str, _text: &str) {}

@@ -3,39 +3,35 @@
 use super::types::{Blob, Branch, ContentFile, PutResp, TreeResp};
 use super::{api, enc, enc_path, parse};
 
-/// Page cap for branch listing: GitHub returns branches alphabetically, so
-/// the default branch can sit past the first page. We chain pages until one
-/// comes back short, up to 1000 branches — enough to include the default on
-/// any realistic repo without hammering pathological ones.
-const MAX_BRANCH_PAGES: usize = 10;
-const BRANCH_PER_PAGE: usize = 100;
+/// Branches per page. GitHub returns branches alphabetically, so on a repo
+/// with thousands the default can sort well past the first page — the open-repo
+/// view fetches it explicitly via `get_branch` and pages the rest lazily.
+pub const BRANCH_PER_PAGE: usize = 100;
 
-/// All branches (up to the page cap). Fully paginated so the open-repo view
-/// finds the repo's `default_branch` instead of falling back to whichever
-/// branch happens to sort first.
-pub async fn list_branches(token: &Option<String>, full_name: &str) -> Result<Vec<Branch>, String> {
-    let mut all: Vec<Branch> = Vec::new();
-    for page in 1..=MAX_BRANCH_PAGES {
-        let (s, b) = api(
-            "GET",
-            &format!(
-                "/repos/{}/branches?per_page={}&page={}",
-                enc_path(full_name),
-                BRANCH_PER_PAGE,
-                page
-            ),
-            token,
-            None,
-        )
-        .await?;
-        let batch: Vec<Branch> = parse(s, b)?;
-        let short = batch.len() < BRANCH_PER_PAGE;
-        all.extend(batch);
-        if short {
-            break;
-        }
-    }
-    Ok(all)
+/// One page (`BRANCH_PER_PAGE`) of branches. The caller infers "another page
+/// may exist" from a full-length result and requests `page + 1` on demand.
+pub async fn list_branches(token: &Option<String>, full_name: &str, page: usize) -> Result<Vec<Branch>, String> {
+    let (s, b) = api(
+        "GET",
+        &format!("/repos/{}/branches?per_page={}&page={}", enc_path(full_name), BRANCH_PER_PAGE, page.max(1)),
+        token,
+        None,
+    )
+    .await?;
+    parse(s, b)
+}
+
+/// A single branch by name. Used to guarantee the repo's `default_branch` is
+/// present (and its head sha known) regardless of where it sorts in the list.
+pub async fn get_branch(token: &Option<String>, full_name: &str, branch: &str) -> Result<Branch, String> {
+    let (s, b) = api(
+        "GET",
+        &format!("/repos/{}/branches/{}", enc_path(full_name), enc(branch)),
+        token,
+        None,
+    )
+    .await?;
+    parse(s, b)
 }
 
 /// Full recursive tree for a commit sha (use the branch head sha so branch

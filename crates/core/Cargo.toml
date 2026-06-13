@@ -1,5 +1,5 @@
 [package]
-name = "rustvm-core"
+name = "gitarium-core"
 version.workspace = true
 edition.workspace = true
 

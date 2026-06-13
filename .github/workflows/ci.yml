@@ -41,7 +41,7 @@ jobs:
       - name: Test (native)
         run: cargo test --workspace
 
-      # Web target: emits pkg/ (rustvm.js + rustvm_bg.wasm) for the browser app.
+      # Web target: emits pkg/ (gitarium.js + gitarium_bg.wasm) for the browser app.
       - name: Build web wasm (release)
         run: wasm-pack build --target web
 
@@ -50,7 +50,7 @@ jobs:
       - name: Build headless wasm (release)
         run: wasm-pack build crates/headless --target web
 
-      # Inlines glue + base64 wasm into a single self-contained dist/rustvm.html.
+      # Inlines glue + base64 wasm into a single self-contained dist/gitarium.html.
       - name: Build single-file dist.html
         run: bun build-html.ts
 
@@ -59,24 +59,24 @@ jobs:
       - name: Upload dist.html artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rustvm-dist-html
-          path: dist/rustvm.html
+          name: gitarium-dist-html
+          path: dist/gitarium.html
           compression-level: 0
           if-no-files-found: error
 
       - name: Upload wasm artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rustvm-wasm
-          path: pkg/rustvm_bg.wasm
+          name: gitarium-wasm
+          path: pkg/gitarium_bg.wasm
           compression-level: 0
           if-no-files-found: error
 
       - name: Upload headless wasm artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rustvm-headless-wasm
-          path: crates/headless/pkg/rustvm_headless_bg.wasm
+          name: gitarium-headless-wasm
+          path: crates/headless/pkg/gitarium_headless_bg.wasm
           compression-level: 0
           if-no-files-found: error
 
@@ -85,7 +85,7 @@ jobs:
   # flake or rate-limit. The API-free boot smokes always run; the full suite
   # runs only when the live-API token is configured.
   #
-  # To enable the full suite, add a repository secret named RUSTVM_TEST_TOKEN
+  # To enable the full suite, add a repository secret named GITARIUM_TEST_TOKEN
   # (a GitHub PAT). The name can't be GITHUB_TOKEN — the GITHUB_ prefix is
   # reserved for secrets — so it's mapped onto $GITHUB_TOKEN below, which is
   # the only token source the harness reads in CI (never the .env.test file).
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
-      GITHUB_TOKEN: ${{ secrets.RUSTVM_TEST_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITARIUM_TEST_TOKEN }}
     steps:
       - uses: actions/checkout@v6
 
@@ -111,7 +111,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
 
-      # The harness imports ./pkg/rustvm.js, so the wasm build must run first.
+      # The harness imports ./pkg/gitarium.js, so the wasm build must run first.
       - name: Build wasm (release)
         run: wasm-pack build --target web
 

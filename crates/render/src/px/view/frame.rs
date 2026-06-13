@@ -13,6 +13,10 @@ impl View {
         self.time = t_ms;
         self.started = true;
         self.active = false;
+        // A folder archive finished building → hand it to the browser once.
+        if let Some((name, bytes)) = app.pending_download.take() {
+            super::dom::download_bytes(&name, &bytes);
+        }
         self.clicks.clear();
         self.link_urls.clear();
         self.wheels.clear();

@@ -5,6 +5,7 @@ mod actions;
 mod checks;
 mod content;
 mod gitdb;
+mod graphql;
 mod issues;
 mod pulls;
 mod repos;
@@ -15,11 +16,12 @@ mod types;
 
 pub use actions::{get_job_logs, list_jobs, list_runs};
 pub use checks::{list_check_runs, list_reviews, CheckRun, Review};
-pub use content::{get_blob, get_file, get_tree, list_branches, put_file};
+pub use content::{get_blob, get_branch, get_file, get_tree, list_branches, put_file, BRANCH_PER_PAGE};
 pub use gitdb::{
     create_blob, create_commit, create_ref, create_tree, get_commit, update_ref, GitUser,
     TreeChange,
 };
+pub use graphql::blob_texts;
 pub use issues::{list_comments, list_issues, Comment, Issue, Label};
 pub use pulls::{approve_pull, get_pull, list_pulls, merge_pull, Pull};
 pub use repos::{current_user, get_repo, repos_first_page, repos_page, RepoPage, MAX_PAGES};

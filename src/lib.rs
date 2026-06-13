@@ -1,5 +1,5 @@
-//! `rustvm` — the browser (web + interactive agent) wasm target. Wires the
-//! app state machine (rustvm-app) to the GPU renderer (rustvm-render) behind
+//! `gitarium` — the browser (web + interactive agent) wasm target. Wires the
+//! app state machine (gitarium-app) to the GPU renderer (gitarium-render) behind
 //! a `Host`, and exports the `web_*` entrypoints the JS host drives. Pure
 //! functionality lives in the workspace crates; this crate is just the
 //! browser entrypoint. The headless-agent target is a separate cdylib
@@ -11,10 +11,10 @@ use std::cell::RefCell;
 
 use wasm_bindgen::prelude::*;
 
-use rustvm_app::app::App;
-use rustvm_app::drain_msgs;
-use rustvm_core::knowledge;
-use rustvm_render::px;
+use gitarium_app::app::App;
+use gitarium_app::drain_msgs;
+use gitarium_core::knowledge;
+use gitarium_render::px;
 
 thread_local! {
     static HOST: RefCell<Option<Host>> = RefCell::new(None);
@@ -40,7 +40,7 @@ pub fn web_start(
     knowledge::seed();
     // Enable the GitHub API proxy when the host passes a ws(s):// endpoint
     // (server-injected); absent → calls go straight to api.github.com.
-    rustvm_core::proxy::init(proxy_url);
+    gitarium_core::proxy::init(proxy_url);
     let renderer = px::render::Renderer::new(canvas_id).map_err(|e| JsValue::from_str(&e))?;
     let view = px::view::View::new(font_px / 15.0);
     let host = Host { app: App::new(token), renderer, view };

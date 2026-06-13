@@ -139,8 +139,8 @@ const smokeOnly = process.argv.includes("--smoke");
 const token = await resolveToken();
 
 const boots: Array<() => Promise<boolean>> = [
-  () => run("boot smoke (forced webgl1)", "mode=boot&gl=1", "/tmp/rustvm-gl1.png"),
-  () => run("boot smoke (forced canvas2d)", "mode=boot&gl=0", "/tmp/rustvm-canvas2d.png"),
+  () => run("boot smoke (forced webgl1)", "mode=boot&gl=1", "/tmp/gitarium-gl1.png"),
+  () => run("boot smoke (forced canvas2d)", "mode=boot&gl=0", "/tmp/gitarium-canvas2d.png"),
 ];
 
 let ok = true;
@@ -149,7 +149,7 @@ if (smokeOnly) {
 } else {
   if (!token) console.log("(no GITHUB_TOKEN — suite runs anonymous, rate-limited)");
   const suiteQuery = `mode=suite${token ? `&token=${encodeURIComponent(token)}` : ""}`;
-  ok = await run("full suite (webgl2)", suiteQuery, "/tmp/rustvm-suite.png");
+  ok = await run("full suite (webgl2)", suiteQuery, "/tmp/gitarium-suite.png");
 }
 for (const b of boots) ok = (await b()) && ok;
 ok = (await proxyTransport(token)) && ok;

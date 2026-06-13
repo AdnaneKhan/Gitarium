@@ -1,13 +1,12 @@
-//! The issue/PR detail view: its state, opening from a list row, the async
-//! fetches that fill it (comments and, for PRs, merge state / reviews /
-//! checks), and the detail-screen key handling. The approve/merge actions
-//! live in `issue_actions.rs`.
+//! The issue/PR detail view: state, opening from a list row, the async fetches
+//! (comments; for PRs merge state / reviews / checks), and key handling.
+//! Approve/merge live in `issue_actions.rs`, search in `issue_search.rs`.
 
 use crate::github::{self, CheckRun, Comment, Label, Pull, Review};
 use crate::ui::input::{Key, Mods};
 
 use super::keys::plain;
-use super::{App, Loadable, Msg, RepoFocus};
+use super::{App, Loadable, LogSearch, Msg, RepoFocus};
 
 /// How a merge lands; cycled by the detail view's method chip.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -32,7 +31,6 @@ impl MergeMethod {
             MergeMethod::Rebase => "REBASE",
         }
     }
-    /// The `merge_method` value GitHub's merge endpoint expects.
     pub fn api(self) -> &'static str {
         match self {
             MergeMethod::Merge => "merge",
@@ -54,8 +52,10 @@ pub struct Detail {
     pub created_at: String,
     pub labels: Vec<Label>,
     pub comments: Loadable<Vec<Comment>>,
-    /// Row scroll offset into the wrapped body+comments content.
+    /// Row scroll offset into the wrapped body+comments content (left column).
     pub scroll: usize,
+    /// Row scroll offset into the PR meta column (checks / reviews); PR-only.
+    pub meta_scroll: usize,
     // PR-only (Idle for issues):
     pub pr: Loadable<Pull>,
     pub reviews: Loadable<Vec<Review>>,
@@ -63,6 +63,8 @@ pub struct Detail {
     pub merge_method: MergeMethod,
     /// An approve/merge request is in flight.
     pub action_busy: bool,
+    /// In-page search; `matches` (rendered-row indices) is filled by the view.
+    pub search: Option<LogSearch>,
 }
 
 impl App {
@@ -81,11 +83,13 @@ impl App {
             labels: issue.labels.clone(),
             comments: Loadable::Loading,
             scroll: 0,
+            meta_scroll: 0,
             pr: Loadable::Idle,
             reviews: Loadable::Idle,
             checks: Loadable::Idle,
             merge_method: MergeMethod::Merge,
             action_busy: false,
+            search: None,
         };
         self.rv.as_mut().unwrap().detail = Some(detail);
         self.load_comments(number);
@@ -108,11 +112,13 @@ impl App {
             labels: pull.labels.clone(),
             comments: Loadable::Loading,
             scroll: 0,
+            meta_scroll: 0,
             pr: Loadable::Loading,
             reviews: Loadable::Loading,
             checks: Loadable::Loading,
             merge_method: MergeMethod::Merge,
             action_busy: false,
+            search: None,
         };
         self.rv.as_mut().unwrap().detail = Some(detail);
         self.load_comments(number);
@@ -165,6 +171,10 @@ impl App {
     }
 
     pub(super) fn detail_key(&mut self, key: Key, mods: Mods) -> bool {
+        // The in-page search box owns keys while it's open.
+        if self.rv.as_ref().and_then(|rv| rv.detail.as_ref()).is_some_and(|d| d.search.is_some()) {
+            return self.detail_search_key(key, mods);
+        }
         let h = self.layout.detail_h.max(1);
         let Some(rv) = self.rv.as_mut() else { return false };
         let Some(d) = rv.detail.as_mut() else { return false };
@@ -173,6 +183,7 @@ impl App {
                 rv.detail = None;
                 rv.focus = RepoFocus::Tree;
             }
+            Key::Char('/') if plain(mods) => self.open_detail_search(),
             Key::Char('?') if plain(mods) => self.overlay = Some(super::Overlay::Help),
             Key::Char('i') if plain(mods) => self.open_agent(),
             Key::Char('a') if plain(mods) && d.is_pr => self.approve_pr(),

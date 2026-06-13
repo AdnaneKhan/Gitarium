@@ -29,18 +29,18 @@ regex-lite = "0.1.9"
 miniz_oxide = "0.8"
 web-sys = "0.3"
 # Local crates, layered by functionality (see each crate's lib.rs header).
-rustvm-core = { path = "crates/core" }
-rustvm-agent = { path = "crates/agent" }
-rustvm-ui = { path = "crates/ui" }
-rustvm-app = { path = "crates/app" }
-rustvm-render = { path = "crates/render" }
+gitarium-core = { path = "crates/core" }
+gitarium-agent = { path = "crates/agent" }
+gitarium-ui = { path = "crates/ui" }
+gitarium-app = { path = "crates/app" }
+gitarium-render = { path = "crates/render" }
 
 # ---------------------------------------------------------------------------
 # Root package: the browser (web + interactive agent) wasm target. Other
 # targets are separate cdylibs under crates/ (e.g. crates/headless).
 # ---------------------------------------------------------------------------
 [package]
-name = "rustvm"
+name = "gitarium"
 version.workspace = true
 edition.workspace = true
 
@@ -50,10 +50,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
-rustvm-core = { workspace = true }
-rustvm-ui = { workspace = true }
-rustvm-app = { workspace = true }
-rustvm-render = { workspace = true }
+gitarium-core = { workspace = true }
+gitarium-ui = { workspace = true }
+gitarium-app = { workspace = true }
+gitarium-render = { workspace = true }
 web-sys = { workspace = true, features = ["Window", "Navigator", "Clipboard"] }
 
 [profile.release]
@@ -62,6 +62,10 @@ lto = "fat"          # whole-program inlining across all crates
 codegen-units = 1    # one unit → best cross-function size optimization
 panic = "abort"      # drop unwind tables + landing pads (wasm traps anyway)
 strip = true
+# Path sanitization + panic-string removal happen in scripts/build-release.sh
+# (RUSTFLAGS --remap-path-prefix + nightly panic_immediate_abort). The stable
+# `trim-paths` profile option would be cleaner but is still nightly-gated as of
+# cargo 1.92, and enabling it here breaks `cargo check`/`cargo test` on stable.
 
 # wasm-pack runs its managed wasm-opt over the bindgen output; -Oz optimizes
 # aggressively for size (default is -O). The --enable-* flags let wasm-opt's

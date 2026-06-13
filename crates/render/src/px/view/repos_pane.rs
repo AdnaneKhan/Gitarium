@@ -5,7 +5,7 @@ use super::*;
 impl View {
     pub(super) fn repos_screen(&mut self, app: &mut App, dl: &mut DrawList, atlas: &mut Atlas, w: f32, h: f32, yoff: f32) {
         let title = match &app.repo_source {
-            RepoSource::Mine => "RUSTVM::GITHUB".to_string(),
+            RepoSource::Mine => "GITARIUM::GITHUB".to_string(),
             RepoSource::Org(n) => format!("ORG::{}", n.to_uppercase()),
         };
         let hh = self.header(app, dl, atlas, w, &title, None);

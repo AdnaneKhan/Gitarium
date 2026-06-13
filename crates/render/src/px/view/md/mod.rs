@@ -25,6 +25,7 @@ mod tests;
 
 pub(super) use block::parse_blocks;
 pub(super) use layout::{layout_blocks, MdSizes};
+pub(in crate::px::view) use select::row_text;
 
 
 /// Inline character styling. `link` indexes a shared url table.

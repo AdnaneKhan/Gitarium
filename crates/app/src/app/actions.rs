@@ -9,7 +9,7 @@ use super::{App, Loadable, LogSearch, Msg, Tab};
 
 /// localStorage key for a job's cached log.
 fn log_cache_key(repo: &str, job_id: u64) -> String {
-    format!("rustvm_joblog:{}:{}", repo, job_id)
+    format!("gitarium_joblog:{}:{}", repo, job_id)
 }
 
 impl App {

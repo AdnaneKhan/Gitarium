@@ -6,7 +6,7 @@
 
 use super::*;
 
-pub(super) fn row_text(row: &MdRow) -> String {
+pub(in crate::px::view) fn row_text(row: &MdRow) -> String {
     match row {
         MdRow::Line { spans, .. } | MdRow::Code { spans, .. } => {
             spans.iter().map(|s| s.text.as_str()).collect()

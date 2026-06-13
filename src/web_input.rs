@@ -3,9 +3,9 @@
 use wasm_bindgen::prelude::*;
 
 use crate::with_host;
-use rustvm_app::app::Route;
-use rustvm_app::host_wake;
-use rustvm_ui::ui::input::{Event, Key, Mods};
+use gitarium_app::app::Route;
+use gitarium_app::host_wake;
+use gitarium_ui::ui::input::{Event, Key, Mods};
 
 /// Returns true when the key was consumed (host should preventDefault).
 #[wasm_bindgen]

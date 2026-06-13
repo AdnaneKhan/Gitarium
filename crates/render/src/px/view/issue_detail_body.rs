@@ -23,27 +23,55 @@ fn heading(text: &str, s: &MdSizes) -> MdRow {
     line(vec![span(text, UI_BOLD, s.h_px[2], with_a(CYAN, 0.85))], 0.0)
 }
 
+/// Single-column rows for an issue: labels, then description and comments.
+/// PRs split this across two columns via `detail_left_rows`/`detail_right_rows`.
 pub(super) fn detail_rows(d: &Detail, width: f32, s: &MdSizes, atlas: &Atlas) -> (Vec<MdRow>, Vec<String>) {
     let mut urls: Vec<String> = Vec::new();
     let mut rows: Vec<MdRow> = Vec::new();
-    if !d.labels.is_empty() {
-        let mut spans: Vec<Span> = Vec::new();
-        for l in &d.labels {
-            let col = label_color(&l.color);
-            spans.push(span("● ", UI, s.text_px, col));
-            spans.push(span(&format!("{}   ", l.name), UI_BOLD, s.text_px, readable(col)));
-        }
-        rows.push(line(spans, 0.0));
-        rows.push(MdRow::Blank);
+    push_labels(d, s, &mut rows);
+    push_body(d, width, s, atlas, &mut rows, &mut urls);
+    (rows, urls)
+}
+
+/// The PR detail's left column: description and comments (the prose).
+pub(super) fn detail_left_rows(d: &Detail, width: f32, s: &MdSizes, atlas: &Atlas) -> (Vec<MdRow>, Vec<String>) {
+    let mut urls: Vec<String> = Vec::new();
+    let mut rows: Vec<MdRow> = Vec::new();
+    push_body(d, width, s, atlas, &mut rows, &mut urls);
+    (rows, urls)
+}
+
+/// The PR detail's right column: labels and the merge requirements
+/// (mergeability, checks, reviews). No markdown links, so no url table.
+pub(super) fn detail_right_rows(d: &Detail, s: &MdSizes) -> Vec<MdRow> {
+    let mut rows: Vec<MdRow> = Vec::new();
+    push_labels(d, s, &mut rows);
+    pr_meta(d, s, &mut rows);
+    rows
+}
+
+/// The colored label chips block (shared by issue and PR layouts).
+fn push_labels(d: &Detail, s: &MdSizes, rows: &mut Vec<MdRow>) {
+    if d.labels.is_empty() {
+        return;
     }
-    if d.is_pr {
-        pr_meta(d, s, &mut rows);
+    let mut spans: Vec<Span> = Vec::new();
+    for l in &d.labels {
+        let col = label_color(&l.color);
+        spans.push(span("● ", UI, s.text_px, col));
+        spans.push(span(&format!("{}   ", l.name), UI_BOLD, s.text_px, readable(col)));
     }
+    rows.push(line(spans, 0.0));
+    rows.push(MdRow::Blank);
+}
+
+/// Description heading + body, then the comments thread.
+fn push_body(d: &Detail, width: f32, s: &MdSizes, atlas: &Atlas, rows: &mut Vec<MdRow>, urls: &mut Vec<String>) {
     rows.push(heading("DESCRIPTION", s));
     if d.body.trim().is_empty() {
         rows.push(plain("(no description provided)", DIM, s));
     } else {
-        rows.extend(layout_blocks(&parse_blocks(&d.body, &mut urls), width, s, atlas));
+        rows.extend(layout_blocks(&parse_blocks(&d.body, urls), width, s, atlas));
     }
     rows.push(MdRow::Blank);
     match &d.comments {
@@ -58,13 +86,12 @@ pub(super) fn detail_rows(d: &Detail, width: f32, s: &MdSizes, atlas: &Atlas) ->
                 let who = cm.user.as_ref().map(|u| u.login.clone()).unwrap_or_default();
                 let head = format!("@{} · {}", who, crate::app::fmt_age(&cm.created_at));
                 rows.push(line(vec![span(&head, UI_BOLD, s.text_px, with_a(MAGENTA, 0.9))], 0.0));
-                rows.extend(layout_blocks(&parse_blocks(&cm.body, &mut urls), width, s, atlas));
+                rows.extend(layout_blocks(&parse_blocks(&cm.body, urls), width, s, atlas));
                 rows.push(MdRow::Blank);
             }
         }
         Loadable::Idle => {}
     }
-    (rows, urls)
 }
 
 /// The PR-only merge-requirement rows: diff stats, mergeability, checks, and

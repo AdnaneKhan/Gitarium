@@ -1,10 +1,8 @@
 //! Async results delivered to the app, one enum variant per request kind,
-//! each carrying enough context to detect staleness. `on_msg` only
-//! dispatches; the handlers live with their topic modules.
+//! each carrying enough context to detect staleness. Dispatch to handlers
+//! lives in `msg_dispatch`; the handlers themselves with their topic modules.
 
 use crate::github;
-
-use super::App;
 
 pub enum Msg {
     TokenChecked {
@@ -34,9 +32,18 @@ pub enum Msg {
         /// hit); None for a plain repo open.
         then_open: Option<String>,
     },
+    /// One page of the repo's branches; `page` is 1-based. Page 1 seeds the
+    /// list, later pages append as the picker scrolls.
     Branches {
         repo: String,
+        page: usize,
         result: Result<Vec<github::Branch>, String>,
+    },
+    /// The repo's default branch, fetched explicitly so it's always present
+    /// and its head sha is known even when it sorts past the first page.
+    DefaultBranch {
+        repo: String,
+        result: Result<github::Branch, String>,
     },
     /// A new branch ref was created from the branch picker; `sha` is the base
     /// head it points at, so the view can switch to it without a reload.
@@ -142,47 +149,7 @@ pub enum Msg {
         gen: u64,
         results: Vec<(serde_json::Value, bool)>,
     },
-}
-
-impl App {
-    pub fn on_msg(&mut self, msg: Msg) {
-        self.dirty = true;
-        match msg {
-            Msg::TokenChecked { token, result } => self.on_token_checked(token, result),
-            Msg::ProxyAuthChecked { result } => self.on_proxy_auth_checked(result),
-            Msg::ReposPage { gen, base, page, result } => {
-                self.on_repos_page(gen, base, page, result)
-            }
-            Msg::RepoOpened { name, result, then_open } => {
-                self.on_repo_opened(name, result, then_open)
-            }
-            Msg::Branches { repo, result } => self.on_branches(repo, result),
-            Msg::BranchCreated { repo, name, sha, result } => {
-                self.on_branch_created(repo, name, sha, result)
-            }
-            Msg::Tree { repo, result } => self.on_tree(repo, result),
-            Msg::FileLoaded { repo, branch, path, result } => {
-                self.on_file_loaded(repo, branch, path, result)
-            }
-            Msg::Committed { repo, name, is_tag, result } => {
-                self.on_committed(repo, name, is_tag, result)
-            }
-            Msg::Runs { repo, result } => self.on_runs(repo, result),
-            Msg::Jobs { repo, run_id, result } => self.on_jobs(repo, run_id, result),
-            Msg::JobLogs { repo, job_id, result } => self.on_job_logs(repo, job_id, result),
-            Msg::IssuesLoaded { repo, result } => self.on_issues_loaded(repo, result),
-            Msg::PullsLoaded { repo, result } => self.on_pulls_loaded(repo, result),
-            Msg::Comments { repo, number, result } => self.on_comments(repo, number, result),
-            Msg::PullLoaded { repo, number, result } => self.on_pull_loaded(repo, number, result),
-            Msg::Reviews { repo, number, result } => self.on_reviews(repo, number, result),
-            Msg::Checks { repo, number, result } => self.on_checks(repo, number, result),
-            Msg::PrActed { repo, number, approve, result } => {
-                self.on_pr_acted(repo, number, approve, result)
-            }
-            Msg::CodeSearchDone { gen, page, result } => self.on_code_search_done(gen, page, result),
-            Msg::ModelsListed { result } => self.on_models_listed(result),
-            Msg::AgentResponse { gen, result } => self.on_agent_response_msg(gen, result),
-            Msg::AgentToolsDone { gen, results } => self.on_agent_tools_done(gen, results),
-        }
-    }
+    /// A folder finished packing into a `.tar.gz`: (repo full_name, download
+    /// filename, the gzipped bytes or an error).
+    FolderArchive(String, String, Result<Vec<u8>, String>),
 }

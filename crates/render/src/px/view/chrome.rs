@@ -86,7 +86,7 @@ impl View {
 
         let x = r.x + self.f(30.0);
         let title_px = self.f(34.0);
-        let end = dl.text(atlas, UI_BOLD, title_px, x, r.y + self.f(56.0), "RUSTVM", CYAN, self.f(7.0));
+        let end = dl.text(atlas, UI_BOLD, title_px, x, r.y + self.f(56.0), "GITARIUM", CYAN, self.f(7.0));
         dl.text(atlas, UI, self.f(14.0), end + self.f(6.0), r.y + self.f(56.0), "// GITHUB INTERFACE", MAGENTA, self.f(2.5));
 
         dl.text(

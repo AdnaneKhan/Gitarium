@@ -5,6 +5,6 @@
 //!
 //! Re-importing the foundation modules under their old names keeps the
 //! agent's `crate::github` / `crate::sh` / … paths working unchanged.
-use rustvm_core::{fetch, github, knowledge, proxy, sh, vfs};
+use gitarium_core::{fetch, github, knowledge, proxy, sh, vfs};
 
 pub mod agent;

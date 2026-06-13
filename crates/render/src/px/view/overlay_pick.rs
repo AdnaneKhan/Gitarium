@@ -55,6 +55,12 @@ impl View {
         dl.pop_clip();
         self.scrollbar(dl, &list, branches.len() as f32 * row_h, offset);
         self.wheels.push((list, Scroll::Overlay, row_h, (branches.len() as f32 * row_h - list.h).max(0.0)));
+        // Lazily pull the next page once scrolled near the end of what's loaded.
+        let more = app.rv.as_ref().map(|rv| rv.branches_more).unwrap_or(false);
+        if more && offset + list.h >= branches.len() as f32 * row_h - row_h * 6.0 {
+            app.load_more_branches();
+            self.needs_frame = true;
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

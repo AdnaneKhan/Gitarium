@@ -1,4 +1,4 @@
-// Headless autonomous agent: loads the headless-only RustVM wasm
+// Headless autonomous agent: loads the headless-only Gitarium wasm
 // (crates/headless — agent + foundation, no rendering) and drives the SAME
 // agent loop as the in-app `i` window — identical tools (github_api,
 // code_search, bash/grep/find over the in-wasm shell), the compiled knowledge
@@ -22,7 +22,7 @@
 //
 // Exit code: 0 when the goal is achieved, 1 otherwise (blocked / turn cap).
 
-import init, { agent_run_headless } from "./crates/headless/pkg/rustvm_headless.js";
+import init, { agent_run_headless } from "./crates/headless/pkg/gitarium_headless.js";
 
 const goal = process.argv.slice(2).join(" ").trim();
 if (!goal) {
@@ -44,7 +44,7 @@ const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim() || undefined;
 const maxTurns = Math.max(0, Number(process.env.AGENT_MAX_TURNS ?? 60) | 0);
 
 const wasm = await Bun.file(
-  new URL("./crates/headless/pkg/rustvm_headless_bg.wasm", import.meta.url),
+  new URL("./crates/headless/pkg/gitarium_headless_bg.wasm", import.meta.url),
 ).arrayBuffer();
 await init({ module_or_path: wasm });
 

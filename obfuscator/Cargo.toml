@@ -1,0 +1,13 @@
+[package]
+name = "gitarium-obfuscator"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone tool: its own workspace so the parent (wasm) workspace ignores it.
+[workspace]
+
+[dependencies]
+walrus = "0.23"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+rand = "0.8"

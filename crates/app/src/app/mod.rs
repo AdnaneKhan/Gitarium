@@ -14,18 +14,22 @@ mod chat;
 mod code_keys;
 mod code_search;
 mod commit;
+mod download;
 mod file_msgs;
 mod files;
 mod input;
 mod issue_actions;
 mod issue_detail;
 mod issue_msgs;
+mod issue_search;
 mod issues;
 mod keys;
 mod menu;
 mod msg;
+mod msg_dispatch;
 mod overlays;
 mod repo;
+mod repo_branches;
 mod repo_msgs;
 mod repos;
 mod search;
@@ -75,6 +79,10 @@ pub struct App {
     /// Floating right-click menu (tree actions); drawn above everything.
     pub context_menu: Option<ContextMenu>,
     pub toast: Option<(String, bool)>,
+    /// A finished folder archive awaiting the renderer's one-shot browser
+    /// download: (filename, gzipped-tar bytes). The render frame drains it
+    /// (DOM access lives there, not in this crate).
+    pub pending_download: Option<(String, Vec<u8>)>,
     /// Owner/name of the repo an async open (OpenRepo overlay) is fetching;
     /// a `RepoOpened` for anything else is stale and dropped.
     pub opening_repo: Option<String>,
@@ -123,6 +131,7 @@ impl App {
             overlay: None,
             context_menu: None,
             toast: None,
+            pending_download: None,
             opening_repo: None,
             code_search_gen: 0,
             anthropic_key: crate::agent::load_key(),

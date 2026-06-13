@@ -64,11 +64,15 @@ void main() {
     } else if (mode < 2.5) {
         // solid
         gl_FragColor = v_color;
-    } else {
+    } else if (mode < 3.5) {
         // scanlines: darken every other 2px band
         float band = mod(v_pos.y, 4.0);
         float a = band < 2.0 ? v_color.a : 0.0;
         gl_FragColor = vec4(0.0, 0.0, 0.0, a);
+    } else {
+        // color emoji: straight RGBA from the color atlas, modulated by alpha
+        vec4 e = texture2D(u_emoji, v_uv);
+        gl_FragColor = vec4(e.rgb, e.a * v_color.a);
     }
 }
 "#;

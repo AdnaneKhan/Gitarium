@@ -24,7 +24,7 @@ export function makeProxy(token?: string): Proxy {
     inject: (html) =>
       html.replace(
         "</head>",
-        `<script>window.__RUSTVM_PROXY__=${JSON.stringify(PROXY_PATH)}</script></head>`,
+        `<script>window.__GITARIUM_PROXY__=${JSON.stringify(PROXY_PATH)}</script></head>`,
       ),
     websocket: {
       message: (ws, raw) => handle(ws, typeof raw === "string" ? raw : raw.toString(), token),
@@ -56,7 +56,7 @@ async function handle(ws: WS, raw: string, token?: string): Promise<void> {
   }
   // GitHub requires a User-Agent on every API request.
   if (!Object.keys(headers).some((k) => k.toLowerCase() === "user-agent")) {
-    headers["User-Agent"] = "RustVM-Proxy";
+    headers["User-Agent"] = "Gitarium-Proxy";
   }
 
   try {

@@ -18,6 +18,12 @@ impl App {
                     path.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default()
                 };
                 items.push(MenuItem { label: "New file…".into(), action: MenuAction::NewFile(dir) });
+                if is_dir {
+                    items.push(MenuItem {
+                        label: "Download as .tar.gz".into(),
+                        action: MenuAction::DownloadDir(path.clone()),
+                    });
+                }
                 if !is_dir {
                     let in_tree = rv
                         .tree
@@ -48,10 +54,16 @@ impl App {
                     }
                 }
             }
-            None => items.push(MenuItem {
-                label: "New file…".into(),
-                action: MenuAction::NewFile(String::new()),
-            }),
+            None => {
+                items.push(MenuItem {
+                    label: "New file…".into(),
+                    action: MenuAction::NewFile(String::new()),
+                });
+                items.push(MenuItem {
+                    label: "Download repo as .tar.gz".into(),
+                    action: MenuAction::DownloadDir(String::new()),
+                });
+            }
         }
         self.context_menu = Some(ContextMenu { x, y, items });
     }
@@ -68,6 +80,7 @@ impl App {
             Some(MenuAction::NewFile(dir)) => self.begin_new_file_in(dir),
             Some(MenuAction::Delete(p)) => self.stage_delete(p),
             Some(MenuAction::Unstage(p)) => self.unstage(&p),
+            Some(MenuAction::DownloadDir(p)) => self.download_folder(p),
             None => {}
         }
     }

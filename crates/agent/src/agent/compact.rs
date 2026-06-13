@@ -15,12 +15,6 @@ pub const SOFT_CAP: u64 = 160_000;
 /// per token), so that request fits even when triggered by an overflow.
 const SUMMARY_CHARS: usize = 480_000;
 
-const INSTRUCTION: &str = "Context is nearly full. Stop working and write a handoff \
-summary for continuing this task in a fresh context: the original request, decisions \
-made and facts learned (ids, shas, URLs), what is done vs pending, and the exact next \
-step. List the VFS paths holding useful data (/rN.json, scratch files) — files survive \
-compaction. Be concrete; this summary replaces the entire conversation.";
-
 /// Total context consumed by the request+response behind `resp`.
 pub fn context_tokens(resp: &Value) -> Option<u64> {
     let u = resp.get("usage")?;
@@ -80,7 +74,7 @@ fn first_text(history: &[Value]) -> Option<String> {
 /// system/tools as a normal turn so the cached prefix is reused.
 pub fn summary_request(model: &str, system: &str, history: &[Value]) -> String {
     let kept = trim(history);
-    let mut text = String::from(INSTRUCTION);
+    let mut text = String::from(super::prompts::get("compact_instruction"));
     if kept.len() < history.len() {
         if let Some(ask) = first_text(history) {
             text.push_str("\nThe original request was: ");
@@ -120,10 +114,10 @@ pub fn compacted_history(summary: &str) -> Vec<Value> {
     vec![json!({
         "role": "user",
         "content": format!(
-            "[The conversation was compacted to fit the context window. Handoff summary:]\n\n\
-             {}\n\n[Shell files survived compaction — ls / to list them. Continue the task \
-             from where the summary leaves off; do not greet or recap.]",
-            summary
+            "{}{}{}",
+            super::prompts::get("compact_history_pre"),
+            summary,
+            super::prompts::get("compact_history_post"),
         ),
     })]
 }

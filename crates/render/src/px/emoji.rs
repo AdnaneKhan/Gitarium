@@ -116,8 +116,8 @@ impl Atlas {
         ctx.set_fill_style_str("#fff");
         ctx.clear_rect(0.0, 0.0, cw as f64, chh as f64);
         let _ = ctx.fill_text(cluster, 0.0, size as f64);
-        let data = ctx.get_image_data(0.0, 0.0, cw as f64, chh as f64).ok()?.data();
-        self.pack_color(&data.0, cw, chh, size)
+        let img = ctx.get_image_data(0.0, 0.0, cw as f64, chh as f64).ok()?;
+        self.pack_color(&img.data().0, cw, chh, size)
     }
 
     /// Lazily build the offscreen 2D context used for emoji rasterization.

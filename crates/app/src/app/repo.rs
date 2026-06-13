@@ -12,6 +12,18 @@ pub struct RepoView {
     pub repo: Repo,
     pub branch: String,
     pub branches: Loadable<Vec<Branch>>,
+    /// Highest branch page appended so far (0 before page 1 lands).
+    pub branch_page: usize,
+    /// Another page of branches may exist (the last page came back full).
+    pub branches_more: bool,
+    /// A branch-page fetch is in flight (suppresses duplicate lazy loads).
+    pub branches_loading: bool,
+    /// The initial tree load has been kicked off; guards the default-branch /
+    /// page-1 race so the tree loads exactly once, for the right branch.
+    pub tree_started: bool,
+    /// The explicit default-branch fetch failed, so page 1 must stand in to
+    /// pick the active branch and start the tree.
+    pub default_failed: bool,
     pub tree: Loadable<Vec<TreeEntry>>,
     pub rows: Vec<TreeRow>,
     pub expanded: HashSet<String>,
@@ -60,6 +72,11 @@ impl RepoView {
             repo,
             branch,
             branches: Loadable::Loading,
+            branch_page: 0,
+            branches_more: false,
+            branches_loading: false,
+            tree_started: false,
+            default_failed: false,
             tree: Loadable::Loading,
             rows: Vec::new(),
             expanded: HashSet::new(),
@@ -104,17 +121,24 @@ impl App {
         // Supersedes any async open still in flight.
         self.opening_repo = None;
         let full = repo.full_name.clone();
+        let default = repo.default_branch.clone();
         self.rv = Some(RepoView::new(repo));
+        if let Some(rv) = &mut self.rv {
+            rv.branches_loading = true;
+        }
         self.route = Route::Repo;
         let token = self.token.clone();
-        let full2 = full.clone();
+        // The default branch, fetched directly so it's always present and its
+        // head sha is known — even on repos with thousands of branches where
+        // it sorts past the first page. The first page populates the picker.
+        let (f1, f2) = (full.clone(), full.clone());
+        let token2 = token.clone();
         crate::spawn_msg(async move {
-            Msg::Branches {
-                repo: full2.clone(),
-                result: github::list_branches(&token, &full2).await,
-            }
+            Msg::DefaultBranch { repo: f1.clone(), result: github::get_branch(&token2, &f1, &default).await }
         });
-        let _ = full;
+        crate::spawn_msg(async move {
+            Msg::Branches { repo: f2.clone(), page: 1, result: github::list_branches(&token, &f2, 1).await }
+        });
     }
 
     /// Open `repo` and, once its branches arrive, jump to `then_open` (a
@@ -144,67 +168,5 @@ impl App {
                 result: github::get_tree(&token, &full, &sha).await,
             }
         });
-    }
-
-    /// Open the new-branch modal, basing it on the currently-active branch.
-    pub(super) fn open_new_branch_modal(&mut self) {
-        if !self.can_edit_repo() {
-            let msg = if self.login.is_none() {
-                "sign in to create a branch"
-            } else {
-                "view-only: no write access to this repo"
-            };
-            self.toast = Some((msg.into(), true));
-            return;
-        }
-        let Some(rv) = self.rv.as_ref() else { return };
-        let base = rv
-            .branches
-            .ready()
-            .and_then(|bs| bs.iter().position(|b| b.name == rv.branch))
-            .unwrap_or(0);
-        self.overlay = Some(super::Overlay::NewBranch {
-            name: crate::ui::lineinput::LineInput::new(false),
-            base,
-        });
-    }
-
-    /// Create `name` from the base branch at `base_idx` (an empty branch
-    /// pointing at that branch's head), then switch to it.
-    pub(super) fn create_branch(&mut self, name: String, base_idx: usize) {
-        if self.token.is_none() {
-            self.toast = Some(("creating a branch requires an access token".into(), true));
-            return;
-        }
-        let Some(rv) = self.rv.as_ref() else { return };
-        let Some(branches) = rv.branches.ready() else { return };
-        if branches.iter().any(|b| b.name == name) {
-            self.toast = Some((format!("{} already exists", name), true));
-            return;
-        }
-        let Some(base) = branches.get(base_idx) else { return };
-        let sha = base.commit.sha.clone();
-        let token = self.token.clone();
-        let full = rv.repo.full_name.clone();
-        crate::spawn_msg(async move {
-            let result = github::create_ref(&token, &full, &format!("refs/heads/{}", name), &sha)
-                .await
-                .map(|_| ());
-            Msg::BranchCreated { repo: full, name, sha, result }
-        });
-        self.toast = Some(("creating branch…".into(), false));
-    }
-
-    pub(super) fn switch_branch(&mut self, name: String) {
-        let Some(rv) = &mut self.rv else { return };
-        rv.branch = name;
-        rv.file = None;
-        rv.file_loading = None;
-        rv.expanded.clear();
-        rv.tree_sel = 0;
-        rv.tree_scroll = 0;
-        // Staged changes are relative to the old branch's tree; drop them.
-        rv.staged.clear();
-        self.load_tree();
     }
 }

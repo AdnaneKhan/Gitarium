@@ -1,6 +1,6 @@
 //! The UI state machine (routes, async message handling, key/mouse
 //! dispatch) plus the tiny async runtime that ferries `Msg` results back
-//! into it. Pure logic — drawing lives in `rustvm-render`, which depends on
+//! into it. Pure logic — drawing lives in `gitarium-render`, which depends on
 //! this crate. The agent/foundation/ui modules are re-imported under their
 //! old names so the app's `crate::agent` / `crate::github` / `crate::ui`
 //! paths resolve unchanged.
@@ -10,9 +10,9 @@ use std::collections::VecDeque;
 
 use wasm_bindgen::prelude::*;
 
-use rustvm_agent::agent;
-use rustvm_core::{github, proxy, store};
-use rustvm_ui::{highlight, ui};
+use gitarium_agent::agent;
+use gitarium_core::{archive, github, proxy, store};
+use gitarium_ui::{highlight, ui};
 
 pub mod app;
 

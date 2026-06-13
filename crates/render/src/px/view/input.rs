@@ -144,7 +144,7 @@ impl View {
             // synchronously inside this gesture keeps popup blockers happy.
             if let Click::OpenUrl(i) = click {
                 if let Some(url) = self.link_urls.get(i) {
-                    super::links::open_url(url);
+                    super::dom::open_url(url);
                 }
                 return;
             }
@@ -153,7 +153,7 @@ impl View {
                 if let Some(rv) = app.rv.as_ref() {
                     if let Some((job_id, Loadable::Ready(text))) = &rv.job_logs {
                         let name = format!("{}_{}.txt", rv.repo.full_name.replace('/', "_"), job_id);
-                        super::links::download_text(&name, text);
+                        super::dom::download_text(&name, text);
                     }
                 }
                 return;

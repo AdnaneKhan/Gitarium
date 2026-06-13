@@ -220,6 +220,8 @@ pub enum MenuAction {
     Delete(String),
     /// Drop this path's staged change.
     Unstage(String),
+    /// Download this folder (empty = whole repo) as a `.tar.gz`.
+    DownloadDir(String),
 }
 
 pub enum Overlay {
@@ -301,6 +303,11 @@ pub enum Click {
     /// A row in the issues or pulls list (which one depends on the active
     /// tab); opening it shows the issue/PR detail.
     IssueRow(usize),
+    /// Issue/PR detail in-page search controls (open box, step, close).
+    DetailSearchOpen,
+    DetailSearchPrev,
+    DetailSearchNext,
+    DetailSearchClose,
     /// Detail-view actions on the open PR.
     Approve,
     Merge,
@@ -347,6 +354,8 @@ pub enum Scroll {
     Agent,
     Issues,
     Detail,
+    /// The PR detail's right column (checks / reviews / mergeability).
+    DetailMeta,
 }
 
 #[derive(Clone, Copy)]

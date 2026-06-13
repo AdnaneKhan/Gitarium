@@ -53,6 +53,11 @@ impl View {
                     d.scroll = rows;
                 }
             }
+            Scroll::DetailMeta => {
+                if let Some(d) = app.rv.as_mut().and_then(|rv| rv.detail.as_mut()) {
+                    d.meta_scroll = rows;
+                }
+            }
             Scroll::Overlay => {
                 if let Some(Overlay::BranchPick { scroll, .. }) = &mut app.overlay {
                     *scroll = rows;

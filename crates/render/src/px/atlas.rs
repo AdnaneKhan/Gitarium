@@ -36,16 +36,20 @@ pub struct Atlas {
     cur_y: u32,
     row_h: u32,
     pub dirty: bool,
-    // Color-emoji atlas (RGBA): browser-rasterized emoji clusters, packed
-    // separately and uploaded to a second texture (see px::emoji).
+    // Color-emoji atlas (RGBA): browser-rasterized clusters → a second
+    // texture (see px::emoji). Cursor/cache/rasterizer are web-only.
     pub color_pixels: Vec<u8>,
     pub color_dirty: bool,
+    #[cfg(target_arch = "wasm32")]
     pub(super) color_cache: HashMap<(u16, String), Option<Glyph>>,
+    #[cfg(target_arch = "wasm32")]
     pub(super) color_cur_x: u32,
+    #[cfg(target_arch = "wasm32")]
     pub(super) color_cur_y: u32,
+    #[cfg(target_arch = "wasm32")]
     pub(super) color_row_h: u32,
-    /// Offscreen 2D context used to rasterize emoji via the OS emoji font;
-    /// lazily created on the web target (None on native / before first use).
+    /// Offscreen 2D context for emoji rasterization (lazily created).
+    #[cfg(target_arch = "wasm32")]
     pub(super) raster_ctx: Option<web_sys::CanvasRenderingContext2d>,
 }
 
@@ -71,10 +75,15 @@ impl Atlas {
             dirty: true,
             color_pixels: vec![0; (COLOR_ATLAS * COLOR_ATLAS * 4) as usize],
             color_dirty: false,
+            #[cfg(target_arch = "wasm32")]
             color_cache: HashMap::new(),
+            #[cfg(target_arch = "wasm32")]
             color_cur_x: 1,
+            #[cfg(target_arch = "wasm32")]
             color_cur_y: 1,
+            #[cfg(target_arch = "wasm32")]
             color_row_h: 0,
+            #[cfg(target_arch = "wasm32")]
             raster_ctx: None,
         })
     }
@@ -88,8 +97,7 @@ impl Atlas {
     }
 
     pub fn advance(&self, font: u8, px: f32, ch: char) -> f32 {
-        // Emoji advance by a fixed cell so every measurement path agrees with
-        // the cluster draw; ordinary text uses the font metrics.
+        // Emoji advance by a fixed cell (so all measurement agrees with draw).
         if let Some(a) = super::emoji::emoji_advance(px, ch) {
             return a;
         }
@@ -115,8 +123,7 @@ impl Atlas {
                 pen += self.kern(font, px, p, ch);
             }
             xs.push(pen);
-            // Emoji use the fixed cell (matching `text`); other chars use the
-            // rasterized glyph's advance.
+            // Emoji use the fixed cell (matching `text`); else the glyph advance.
             let adv = match super::emoji::emoji_advance(px, ch) {
                 Some(a) => a,
                 None => self.glyph(font, px, ch).map_or_else(|| self.advance(font, px, ch), |g| g.advance),

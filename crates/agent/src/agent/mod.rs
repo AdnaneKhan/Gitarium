@@ -10,6 +10,7 @@ mod calls;
 pub mod compact;
 mod exec;
 pub mod headless;
+mod prompts;
 #[cfg(test)]
 mod tests;
 mod tools;
@@ -26,9 +27,9 @@ pub const MODEL: &str = "claude-opus-4-8";
 const DEFAULT_BASE: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
 
-const STORAGE_KEY: &str = "rustvm_anthropic_key";
-const STORAGE_URL: &str = "rustvm_anthropic_url";
-const STORAGE_MODEL: &str = "rustvm_model";
+const STORAGE_KEY: &str = "gitarium_anthropic_key";
+const STORAGE_URL: &str = "gitarium_anthropic_url";
+const STORAGE_MODEL: &str = "gitarium_model";
 
 // ---------------------------------------------------------------------------
 // API key persistence (same localStorage scheme as the GitHub PAT)
@@ -125,28 +126,7 @@ pub fn system_prompt(
     repo: Option<(&str, &str)>,
     file: Option<&str>,
 ) -> String {
-    let mut s = String::from(
-        "You are an autonomous GitHub operations agent embedded in RustVM, a \
-         GPU-rendered GitHub client. Operate the GitHub REST v3 API through the \
-         github_api tool; chain as many calls as the task needs without asking \
-         permission. Look up anything you are unsure about (schemas, ids, shas) \
-         with extra GET calls instead of guessing.\n\
-         On GET requests that return lists, always set per_page=100 when the \
-         endpoint supports it, and fetch page=2, page=3, … while full pages \
-         keep coming.\n\
-         Large API responses are not returned inline: they are saved as files \
-         (/r1.json, /r2.json, …) in an in-memory shell, and you get the path \
-         plus a shape summary. Navigate them with the bash tool (pipes, \
-         redirects, full jq) and the grep/find tools instead of re-fetching; \
-         use scratch files for notes on long tasks.\n\
-         To explore code, reach for code_search before fetching trees and \
-         files blindly: it finds definitions, usages, and examples across \
-         GitHub or within one repo (default branches only, ~10 searches/min — \
-         make queries specific).\n\
-         Replies render in a small terminal-style window: keep them short, lead \
-         with the outcome, and use plain text — no markdown except ``` fences \
-         (with a language tag) for code or file contents.",
-    );
+    let mut s = String::from(prompts::get("system"));
     s.push_str(&crate::knowledge::prompt_block());
     match login {
         Some(l) => s.push_str(&format!("\nAuthenticated as {}.", l)),

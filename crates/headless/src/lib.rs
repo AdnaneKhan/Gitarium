@@ -1,12 +1,12 @@
 //! Headless-agent wasm target. Exposes a single export, `agent_run_headless`,
-//! that drives `rustvm_agent::agent::headless::run` to completion — the same
+//! that drives `gitarium_agent::agent::headless::run` to completion — the same
 //! agent loop, tools, knowledge bundle, and shell VFS as the in-app window,
 //! but with no rendering linked in. Driven by `agent-headless.ts`.
 
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
 
-use rustvm_agent::agent::{headless, normalize_base};
+use gitarium_agent::agent::{headless, normalize_base};
 
 /// Drive the agent toward `goal`, streaming JSON event strings through
 /// `emit` (one string argument per call); resolves to a JSON

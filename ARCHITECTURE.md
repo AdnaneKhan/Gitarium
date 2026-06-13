@@ -1,6 +1,6 @@
-# RustVM Architecture
+# Gitarium Architecture
 
-RustVM is a GitHub client written almost entirely in Rust, compiled to
+Gitarium is a GitHub client written almost entirely in Rust, compiled to
 WebAssembly, and drawn as a GPU-rendered HUD on a single `<canvas>` — no DOM,
 no CSS. The JS host is a thin pipe: canvas events in, frames out. The same
 core also powers a headless, self-driving Claude agent that operates GitHub
@@ -28,9 +28,12 @@ mid-event.
 | You want to… | Look in |
 | --- | --- |
 | add/alter a keybinding or screen behavior | `crates/app/src/app/keys.rs`, `code_keys.rs` |
-| add a new async data flow (request → state) | a handler in `crates/app/src/app/*.rs` + a `Msg` variant in `msg.rs` |
+| add a new async data flow (request → state) | a handler in `crates/app/src/app/*.rs` + a `Msg` variant in `msg.rs` + a route in `msg_dispatch.rs` |
 | add a GitHub REST call | `crates/core/src/github/` |
 | change how a screen looks | `crates/render/src/px/view/<screen>_pane.rs` |
+| work on issues / pull requests | `app/issue*.rs`, `issues.rs` + `px/view/issues_pane.rs`, `issue_detail_pane.rs`, `issue_detail_body.rs` |
+| change Markdown rendering (issue/PR bodies) | `crates/render/src/px/view/md/` |
+| touch glyph / color-emoji rendering | `crates/render/src/px/atlas.rs`, `emoji.rs` |
 | add a modal/overlay | `Overlay` in `app/state.rs` + `app/overlays.rs` + `px/view/overlay_*.rs` |
 | change editor behavior | `crates/app/src/app/editor/` |
 | add a syntax-highlighted language | `crates/ui/src/highlight/langs.rs` |
@@ -52,15 +55,15 @@ what each target needs.
 
 | Crate | Type | Functionality |
 | --- | --- | --- |
-| `rustvm-core` | rlib | VFS, `fetch`, GitHub REST, the in-wasm shell, knowledge bundle |
-| `rustvm-ui` | rlib | input model (`Key`/`Mods`/`Event`), grid, theme, syntax highlighting |
-| `rustvm-agent` | rlib | Claude client (Messages API, tools) + the headless driver |
-| `rustvm-app` | rlib | the `App` state machine + async runtime → agent, core, ui |
-| `rustvm-render` | rlib | the `px` WebGL/Canvas2D renderer → app, core, ui |
-| `rustvm` (root) | **cdylib** | **web target**: app + render → the `web_*` exports |
-| `rustvm-headless` | **cdylib** | **headless target**: agent only → `agent_run_headless` |
+| `gitarium-core` | rlib | VFS, `fetch`, GitHub REST, the in-wasm shell, knowledge bundle |
+| `gitarium-ui` | rlib | input model (`Key`/`Mods`/`Event`), grid, theme, syntax highlighting |
+| `gitarium-agent` | rlib | Claude client (Messages API, tools) + the headless driver |
+| `gitarium-app` | rlib | the `App` state machine + async runtime → agent, core, ui |
+| `gitarium-render` | rlib | the `px` WebGL/Canvas2D renderer → app, core, ui |
+| `gitarium` (root) | **cdylib** | **web target**: app + render → the `web_*` exports |
+| `gitarium-headless` | **cdylib** | **headless target**: agent only → `agent_run_headless` |
 
-The headless target depends *only* on `rustvm-agent`, so it links no
+The headless target depends *only* on `gitarium-agent`, so it links no
 renderer/UI — half the size of the web bundle.
 
 ```sh
@@ -125,22 +128,31 @@ data lifecycle. Pure logic, split into per-topic `impl App` blocks across many
 | Path | Role |
 | --- | --- |
 | `mod.rs` | the `App` struct + fields, `App::new`, re-exports, `fmt_age` |
-| `state.rs` | shared types: `Route`, `RepoSource`, `Overlay`, `ConfirmAction`, `Click`, `Scroll`, `Layout`, `OpenFile`, `SearchScope`, `Loadable<T>` |
-| `msg.rs` | the `Msg` enum (one variant per async request) + `on_msg` dispatch |
+| `state.rs` | shared types: `Route`, `Tab`, `RepoSource`, `Overlay`, `ConfirmAction`, `Click`, `Scroll`, `Layout`, `OpenFile`, `SearchScope`, `LogSearch`, `MenuAction`, `Loadable<T>` |
+| `msg.rs` / `msg_dispatch.rs` | the `Msg` enum (one variant per async request) / its `on_msg` routing to handlers |
 | `keys.rs` | `on_event` (top-level dispatch), `repos_key`, the `plain(mods)` gate |
 | `code_keys.rs` | Repo-route keys (`repo_key`→`code_key`/`viewer_key`) |
 | `auth.rs` / `input.rs` | token entry; `on_paste` + `perform_click` |
 | `repos.rs` | streamed paginated listing (`repos_gen`), filter, sort |
-| `repo.rs` / `repo_msgs.rs` | `RepoView`, `open_repo`, branch/tree handlers |
+| `repo.rs` / `repo_msgs.rs` | `RepoView`, `open_repo`, `Tab` switching, tree handlers |
+| `repo_branches.rs` | branch-list pagination, new-branch modal, ref creation, branch switch |
 | `files.rs` / `file_msgs.rs` | open/commit a file + their staleness guards |
 | `tree.rs`, `staging.rs`, `commit.rs`, `menu.rs` | tree nav, staged workspace, multi-file commit, right-click menu |
-| `actions.rs` | Actions tab (runs/jobs) |
+| `download.rs` | folder/repo → in-wasm `.tar.gz` (orchestrates `core::archive`) |
+| `actions.rs` | Actions tab (runs/jobs/steps) + drill into a job's raw logs with in-page search |
+| `issues.rs` | Issues & Pulls list tabs: lazy 100-item `Loadable` lists, tab switch, list keys |
+| `issue_detail.rs` / `issue_msgs.rs` | the open issue/PR `Detail` (body + comments; PR merge state / reviews / checks) + its async results |
+| `issue_actions.rs` / `issue_search.rs` | PR approve/merge (confirm-gated); the detail's in-page text search |
 | `search.rs` / `code_search.rs` | find-file palette; GitHub code search (`code_search_gen`) |
 | `overlays.rs` | overlay key dispatch + the simple modals |
 
 **Routes.** `Route` (Auth → Repos → Repo / Agent) is the top-level screen. The
 open repo lives in `App.rv: Option<RepoView>` (branch, `Loadable` collections,
-flattened tree `rows`, the open `file`, staged workspace, focus). One
+flattened tree `rows`, the open `file`, staged workspace, focus). A `Tab`
+(Code / Issues / Pulls / Actions) selects the Repo route's content: the
+Issues/Pulls tabs hold lazy `Loadable` lists that open into
+`rv.detail: Option<Detail>` (issue/PR body + comments, and for PRs the merge
+state); the Actions tab drills from a run's jobs into a job's raw logs. One
 `App.overlay: Option<Overlay>` holds any modal; one `App.context_menu` the
 floating right-click menu. Async data uses `Loadable<T>` =
 Idle/Loading/Ready/Failed rather than scattered flags.
@@ -157,9 +169,10 @@ maps Cmd→ctrl, so `Cmd+R` falls through unconsumed). Clicks arrive
 (click-to-select, click-again-to-activate).
 
 **Overlays.** `Overlay` is the modal system (`Commit`, `BranchPick`,
-`OpenRepo`, `NewFile`, `NewBranch`, `FileSearch`, `CodeSearch`, `Help`,
-`Confirm`). `Confirm { action: ConfirmAction }` is the unsaved-edits gate: any
-navigation that would discard a modified buffer routes through it.
+`OpenRepo`, `NewFile`, `NewBranch`, `ModelPick`, `FileSearch`, `CodeSearch`,
+`Help`, `Confirm`). `Confirm { msg, action: ConfirmAction }` is the gate for
+anything that needs a yes/no — discarding a modified buffer, and the PR
+approve/merge actions all route through it.
 
 ### The renderer (`crates/render/src/px/`)
 
@@ -171,39 +184,57 @@ and hit-regions; `App` owns all state.**
 | --- | --- | --- |
 | draw/ | `draw/mod.rs` (`DrawList`, `RectF`, `MODE_*`), `draw/text.rs` | immediate-mode API + the interleaved vertex stream + CPU clip stack; glyph quads & text measurement |
 | render/ | `render/mod.rs` (`Renderer`/`Backend`), `webgl.rs`, `shaders.rs`, `canvas2d.rs`, `glyphs.rs` | backend acquisition + the three backends |
-| px/ | `atlas.rs`, `anim.rs` (`Smooth`), `theme.rs` | glyph atlas, easing, palette |
-| view/ | `mod.rs` (`View`), `frame.rs`, `input.rs`, per-screen `*_pane.rs`, `overlay_*.rs`, `widgets.rs` | the view layer |
+| px/ | `atlas.rs`, `emoji.rs`, `anim.rs` (`Smooth`), `theme.rs` | coverage glyph atlas + color-emoji atlas, easing, palette |
+| view/ | `mod.rs` (`View`), `frame.rs`, `input.rs`, per-screen `*_pane.rs` (incl. `issues_pane.rs`, `issue_detail_pane.rs`/`_body.rs`, `actions_log.rs`), `md/` (Markdown), `overlay_*.rs`, `dom.rs`, `widgets.rs` | the view layer |
 
 **The draw pipeline — one lossless quad stream.** Every primitive becomes
 exactly one quad (6 verts), and **every vertex carries the primitive's full
 parameters**: `pos2 uv2 color4 rect4 param4` (16 floats), where `rect` =
 (center, half-extent) and `param` = `(radius, feather, border_width, MODE_*)`.
 So the stream decodes losslessly back into primitives. `solid`/`rrect`/
-`border`/`glow`/`scanlines`/`text` just set the mode. Clipping is CPU-side
-(axis-aligned rect intersection stack).
+`border`/`glow`/`scanlines`/`text`/`emoji` just set the mode (`MODE_*`, where
+`MODE_EMOJI` samples the RGBA color-emoji atlas instead of the luminance one).
+Clipping is CPU-side (axis-aligned rect intersection stack).
 
 **Backends.** `Renderer::new` acquires **webgl2 → webgl → canvas2d**. The WebGL
 path drives a WebGL2 *or* WebGL1 context through the WebGL1 bindings (every call
-exists on both), with GLSL ES 1.00, a LUMINANCE atlas, and no VAOs. The
+exists on both), with GLSL ES 1.00, two textures — a LUMINANCE coverage atlas
+(`u_atlas`) and a second RGBA color-emoji atlas (`u_emoji`) — and no VAOs. The
 fragment shader branches on `param.w`: glyph samples `.r` coverage, SDF computes
-`sdBox` with a `smoothstep` falloff (inner subtraction for borders). **The
+`sdBox` with a `smoothstep` falloff (inner subtraction for borders), and emoji
+blits the RGBA atlas untinted (only the vertex alpha applies). **The
 shared-stream insight:** machines with no WebGL fall back to `canvas2d.rs`,
 which *interprets the exact same vertex stream* (solid→`fillRect`,
-SDF→rounded path / shadow-blur, glyph→batched blit). There is no second scene
-representation — the quad stream is the single source of truth for all three.
+SDF→rounded path / shadow-blur, glyph→batched blit, emoji→color-atlas blit).
+There is no second scene representation — the quad stream is the single source
+of truth for all three.
 
 **Font atlas** (`atlas.rs`): three embedded TTFs (Rajdhani Regular/Bold,
 JetBrains Mono), rasterized on demand via `fontdue` into one shelf-packed
-texture; cache key `(font, size_bucket, char)`, missing glyphs fall back across
-fonts then to `'?'`.
+LUMINANCE texture; cache key `(font, size_bucket, char)`, missing glyphs fall
+back across fonts then to `'?'`.
+
+**Color emoji** (`emoji.rs`): emoji never go through `fontdue` — `fontdue` is
+monochrome and the embedded fonts have no emoji. Instead `emoji.rs` detects
+emoji codepoints and **grapheme clusters** (regional-indicator flags, skin-tone
+and ZWJ sequences), rasterizes each cluster with the *browser's own* 2D-canvas
+(the OS color-emoji font) into a separate RGBA color atlas, and draws it via
+`MODE_EMOJI`. Advance is a fixed `emoji_cell(px)` so every width path (layout,
+selection, hit-testing) agrees regardless of the OS glyph's true metrics. Both
+the rasterizer and the color atlas are `cfg`-gated to wasm; on native the color
+path is a no-op (so `cargo test` stays headless-renderer-free).
 
 **Hit-testing → Click/Scroll.** Screen modules *record* hit regions as they
 draw (`self.clicks.push((RectF, Click))`, `self.wheels.push(...)`). At event
 time `click_at`/`wheel` scan those vecs **in reverse** so the topmost-drawn
 wins; clicks become `app.perform_click`, wheels write the row index back into
-`App` so keyboard nav stays coherent. The editor and agent transcript use
-cached geometry (`editor_geom`, `agent_geom`) for pixel→(row,col) math instead
-of discrete rects.
+`App` so keyboard nav stays coherent. Text panes that support
+selection/copy use cached geometry for pixel→(row,col) math instead of discrete
+rects: `editor_geom` (editor) and `log_geom` (job logs) each have their own, and
+**the issue/PR Markdown detail reuses the agent transcript's machinery wholesale**
+— it populates `agent_lines`/`agent_xs`/`agent_geom` and resolves selection
+through the same `agent_pos_at`/`agent_selection_text` (so drag-select + copy
+came for free).
 
 ### Editor, input & syntax highlighting
 
@@ -249,6 +280,31 @@ delims, keywords, md flag) is `static`; `lang_for_path` maps extension →
 which `rehighlight` folds top-to-bottom; `line_states.len()` must always equal
 `lines.len()`.
 
+### Issues, pull requests & the Markdown renderer
+
+A cross-layer feature: the `app/issue*.rs` state, the `core/github`
+issues/pulls/checks endpoints, and the `px/view/md` Markdown engine.
+
+**Flow.** The Issues/Pulls tabs lazily load the 100 most-recently-updated open
+items (one page, sorted by update time) into `Loadable` lists with their colored
+labels. Opening a row builds `rv.detail: Detail` and fires the body/comments
+load; for a PR it additionally pulls merge state, reviews, and check runs so the
+detail can show mergeability and gate **approve / merge** (`POST reviews` /
+`PUT merge`), both routed through the `Confirm` overlay. The detail has its own
+scroll, an in-page text search (the same `LogSearch` model the job-log view
+uses), and mouse selection/copy (via the reused transcript geometry, above).
+
+**Markdown engine** (`px/view/md/`, pure layout — no IO). A two-stage pipeline:
+`block.rs` splits source into `Block`s (headings, lists incl. task lists,
+blockquotes, fenced code, GFM `table.rs`, rules, paragraphs); `inline.rs` parses
+spans (emphasis, `code`, strike, links/autolinks/bare URLs, escapes, image
+placeholders, `:shortcode:` emoji via `shortcode.rs`). `layout.rs` wraps spans
+to a width into uniform-height `MdRow`s (uniform so the row-indexed scroll/search
+math stays simple), `code.rs` syntax-highlights fenced blocks, and `draw.rs`
+emits the quad stream (pills for code, underlines for links, the color-emoji
+path for emoji). `select.rs` (`row_text`/`row_xs`) backs selection and search.
+Deliberately **not** supported: images, math, mermaid, raw HTML.
+
 ### Core services (`crates/core/`)
 
 The runtime substrate every target shares: GitHub REST, an in-memory FS, a
@@ -256,7 +312,9 @@ from-scratch shell over it, HTTP, and a compiled knowledge bundle.
 
 | Path | Role |
 | --- | --- |
-| `github/{mod,types,repos,content,gitdb,actions,search}.rs` | the REST client |
+| `github/{mod,types,repos,content,gitdb,actions,search,issues,pulls,checks}.rs` | the REST client |
+| `github/graphql.rs` | batched blob reads over GraphQL (many `object(oid:)` aliases in one call) |
+| `archive/{mod,tar,gzip}.rs` | pure-Rust ustar tar + gzip writer (folder → `.tar.gz`) |
 | `fetch.rs` | `globalThis.fetch` binding + rate-limit tracking |
 | `vfs.rs` | the in-memory filesystem (`/rN.json`, scratch, read-only `/knowledge/`) |
 | `sh/*.rs` | the bash interpreter (`run`, parse, words, exec, command groups, `jq`) |
@@ -275,6 +333,13 @@ silently reads as a short public list. **Code search is dual**: `search_code`
 (GUI, one highlighted line per file) vs `search_code_global` (agent, up to 3
 lines + an `incomplete` flag). `gitdb.rs` composes blob→tree→commit→ref for
 atomic multi-file commits (vs `content.rs:put_file`'s one-file-one-commit).
+`issues.rs`/`pulls.rs`/`checks.rs` add the issue/PR list + detail endpoints
+(list filters PRs out of the shared `/issues` feed), the merge-state/reviews/
+check-runs reads, and the approve/merge writes; branch listing is paginated
+(`get_branch`/`BRANCH_PER_PAGE`) and `actions.rs` adds `get_job_logs`. **Folder
+download** fans out blob reads through `graphql.rs` (one batched GraphQL call,
+falling back to REST for binary/oversized blobs) and packs them with
+`archive` — sidestepping the `zipball` endpoint and its audit logging.
 
 **In-wasm shell & VFS** — *why it exists*: GitHub responses are large, so
 instead of flooding the agent's context they're saved as `/rN.json` files
@@ -389,21 +454,26 @@ before editing.
    steps or mutating calls outlive the cancel.
 
 4. **Per-frame hit regions/geometry are stale at event time.** `clicks`,
-   `wheels`, `editor_geom`, `agent_geom`, `menu_rects` describe the *last drawn*
-   frame; events fire between frames. Index through them **defensively**
-   (`agent_geom?`, `.min(len-1)`, `saturating_sub`) — in wasm, one bad index
-   panics and kills the whole app. Opening an overlay clears the hit vecs so it
-   swallows main-screen input.
+   `wheels`, `editor_geom`, `agent_geom`, `log_geom`, `menu_rects` describe the
+   *last drawn* frame; events fire between frames. Index through them
+   **defensively** (`agent_geom?`, `.min(len-1)`, `saturating_sub`) — in wasm,
+   one bad index panics and kills the whole app. Opening an overlay clears the
+   hit vecs so it swallows main-screen input.
 
 5. **One quad stream, three backends.** The renderer emits a single lossless
    vertex stream that WebGL2, WebGL1, and Canvas2D all consume. Don't add a
    second scene representation; new primitives must encode into the
-   `pos/uv/color/rect/param` vertex layout so every backend can decode them.
+   `pos/uv/color/rect/param` vertex layout so every backend can decode them. The
+   stream samples *two* textures (the LUMINANCE coverage atlas and the RGBA
+   color-emoji atlas, selected by `MODE_EMOJI`) — that's still one stream and one
+   decode path per backend; keep it that way.
 
 6. **Hit-test with the same metrics you draw with.** Selection/click resolution
    on text must use the exact font/size/tracking the line was drawn with (see
    `agent_xs` / `atlas.char_xs`); an assumed-uniform advance silently
-   mis-targets on bold, tracked, or non-ASCII lines.
+   mis-targets on bold, tracked, or non-ASCII lines. Emoji sidestep this by
+   advancing a fixed `emoji_cell` everywhere, so layout/draw/hit-test agree
+   regardless of the OS glyph's true width.
 
 7. **The 200-line file cap** (`CLAUDE.md`): every *source* file ≤200 lines; split
    into focused modules rather than grow one (parents hold shared state, siblings
@@ -422,17 +492,33 @@ before editing.
 **Distribution** (three forms from the same web wasm):
 - **Served `pkg/`** — `bun serve.ts` negotiates brotli/gzip `Content-Encoding`
   (the ~2.7 MB wasm ships ~0.86 MB brotli), decoded transparently by the browser.
-- **Single-file** — `bun build-html.ts` → `dist/rustvm.html` (~1.5 MB): glue
+- **Single-file** — `bun build-html.ts` → `dist/gitarium.html` (~1.6 MB): glue
   inlined, wasm embedded as **gzip** base64, self-decompressed in-page via
   `DecompressionStream` (gzip not brotli — browsers have no native JS brotli
-  decoder; brotli is used only on the wire).
+  decoder; brotli is used only on the wire). `--obfuscate` first runs the wasm
+  through the `obfuscator/` tool (below) — the right spot, since nothing
+  re-optimizes the wasm afterward.
 - **Headless CLI** — `bun agent-headless.ts "<goal>"` (env: `ANTHROPIC_API_KEY`
   required, `GITHUB_TOKEN`/`ANTHROPIC_BASE_URL`/`AGENT_MAX_TURNS` optional).
+
+**Obfuscator** (`obfuscator/` — a *separate* crate with its own `[workspace]`,
+not built for wasm). A from-scratch transform over the canonical `walrus` IR
+that takes a finished `.wasm` and re-emits an equivalent harder-to-read one:
+data-section XOR encryption with an injected `start` decryptor (so `strings` no
+longer reveals API URLs / prompts / the knowledge bundle — and it survives a
+later `wasm-opt`), custom-section/name stripping, and opt-in code passes
+(direct→`call_indirect` aliasing, literal encoding) that **must run last**
+because `wasm-opt` folds them away. It only raises the reverse-engineering bar —
+**not** security (the XOR key ships in the binary). See `obfuscator/README.md`.
 
 **Testing:**
 - `cargo test --workspace` — native unit tests.
 - `bun test-browser.ts` — headless-Chrome suite against the live GitHub API,
-  scraping `PASS/FAIL/SUITE:` from the console. It runs the full suite on WebGL2,
-  then API-free boot smokes forcing WebGL1 (`?gl=1`) and Canvas2D (`?gl=0`). The
-  page observes state only through `web_debug_text()`/`document.title`. Token
-  comes from `$GITHUB_TOKEN` or a gitignored `.env.test`.
+  scraping `PASS/FAIL/SUITE:` from the console. It runs the full suite on WebGL2
+  (auth, browsing, tree/file/edit/commit flows, Actions runs/jobs, and the
+  Issues/Pulls lists + detail — body/comments, PR merge requirements,
+  selection/copy, in-page search), then API-free boot smokes forcing WebGL1
+  (`?gl=1`) and Canvas2D (`?gl=0`). The page observes state only through
+  `web_debug_text()`/`document.title`; the same page has screenshot drive modes
+  (`?mode=emoji`, `?mode=search`, …) for visual checks. Token comes from
+  `$GITHUB_TOKEN` or a gitignored `.env.test`.

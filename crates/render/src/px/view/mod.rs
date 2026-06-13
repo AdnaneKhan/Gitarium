@@ -25,6 +25,7 @@ mod agent_text;
 mod actions_log;
 mod chrome;
 mod context_menu;
+mod dom;
 mod editor_pane;
 mod frame;
 mod hints;
@@ -153,6 +154,7 @@ fn skey(s: Scroll) -> u8 {
         Scroll::Overlay => 5,
         Scroll::Agent => 6,
         Scroll::Issues => 7, Scroll::Detail => 8,
+        Scroll::DetailMeta => 9,
     }
 }
 

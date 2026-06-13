@@ -1,11 +1,38 @@
 // Builds a self-contained single-file HTML app: wasm-bindgen glue inlined,
 // wasm embedded as base64. Output works from file:// or any static host.
-// Usage: bun build-html.ts [--test]   (--test adds a self-driving harness)
+// Usage: bun build-html.ts [--test] [--obfuscate]
+//   --test       adds a self-driving harness
+//   --obfuscate  runs the obfuscator/ tool over the wasm first (data-section
+//                encryption + section stripping + call aliasing + constant
+//                encoding). Safe here: nothing re-optimizes the wasm after.
 
 import { gzipSync } from "node:zlib";
+import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-const glue = await Bun.file(new URL("./pkg/rustvm.js", import.meta.url)).text();
-const wasm = await Bun.file(new URL("./pkg/rustvm_bg.wasm", import.meta.url)).arrayBuffer();
+const rel = (p: string) => fileURLToPath(new URL(p, import.meta.url));
+
+// Pick the wasm to embed: the pristine build, or an obfuscated copy in a temp
+// file (the glue is untouched — export/import names are preserved by design).
+let wasmPath = rel("./pkg/gitarium_bg.wasm");
+if (process.argv.includes("--obfuscate")) {
+  const obfOut = join(tmpdir(), "gitarium_bg.obf.wasm");
+  console.log("obfuscating wasm (encrypt + strip + alias-calls + obf-consts)…");
+  const r = Bun.spawnSync(
+    [
+      "cargo", "run", "--release", "--quiet",
+      "--manifest-path", rel("./obfuscator/Cargo.toml"), "--",
+      "--alias-calls", "--obf-consts", wasmPath, obfOut,
+    ],
+    { stdout: "inherit", stderr: "inherit" },
+  );
+  if (!r.success) throw new Error("obfuscator failed");
+  wasmPath = obfOut;
+}
+
+const glue = await Bun.file(rel("./pkg/gitarium.js")).text();
+const wasm = await Bun.file(wasmPath).arrayBuffer();
 // Embed the wasm gzip-compressed (~57% smaller than raw base64); the host
 // gunzips it in-page via DecompressionStream. Brotli would be ~20% smaller
 // still, but browsers expose no native JS brotli decoder — served paths use
@@ -17,7 +44,7 @@ const b64 = gzipSync(Buffer.from(wasm), { level: 9 }).toString("base64");
 const initName =
   glue.match(/export default (\w+);/)?.[1] ??
   glue.match(/export \{[^}]*?(\w+) as default[^}]*?\}/)?.[1];
-if (!initName) throw new Error("could not find init function in pkg/rustvm.js");
+if (!initName) throw new Error("could not find init function in pkg/gitarium.js");
 if (glue.includes("</script")) throw new Error("glue contains </script>");
 
 const test = process.argv.includes("--test");
@@ -46,7 +73,7 @@ const sizeCanvas = () => {
 sizeCanvas();
 
 let token;
-try { token = localStorage.getItem("rustvm_token") || undefined; } catch {}
+try { token = localStorage.getItem("gitarium_token") || undefined; } catch {}
 web_start("screen", 15 * dpr(), token);
 
 const resized = () => { sizeCanvas(); web_resize(canvas.width, canvas.height); };
@@ -168,7 +195,7 @@ const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>RustVM — GitHub</title>
+<title>Gitarium — GitHub</title>
 <style>
 html, body { margin: 0; height: 100%; background: #0d1117; overflow: hidden; }
 canvas { display: block; width: 100vw; height: 100vh; }
@@ -185,6 +212,6 @@ ${test ? drive : ""}
 </html>
 `;
 
-const out = test ? "dist/rustvm-test.html" : "dist/rustvm.html";
+const out = test ? "dist/gitarium-test.html" : "dist/gitarium.html";
 await Bun.write(new URL(out, import.meta.url), html);
 console.log(`${out}: ${(html.length / 1024).toFixed(0)} KB`);

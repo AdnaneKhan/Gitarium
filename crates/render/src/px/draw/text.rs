@@ -9,6 +9,7 @@ impl DrawList {
     /// Draw a text run; returns the end pen x. `tracking` adds px between
     /// chars. Emoji clusters render in color via the emoji atlas; everything
     /// else is a coverage glyph tinted by `c`.
+    #[allow(clippy::too_many_arguments)]
     pub fn text(
         &mut self,
         atlas: &mut Atlas,

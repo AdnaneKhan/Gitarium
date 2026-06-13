@@ -1,5 +1,5 @@
 [package]
-name = "rustvm-ui"
+name = "gitarium-ui"
 version.workspace = true
 edition.workspace = true
 

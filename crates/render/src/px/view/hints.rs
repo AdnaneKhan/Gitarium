@@ -34,10 +34,13 @@ fn repo_hints(app: &App) -> &'static str {
     }
     let rv = app.rv.as_ref();
     if let Some(d) = rv.and_then(|rv| rv.detail.as_ref()) {
+        if d.search.is_some() {
+            return "TYPE TO SEARCH · [↑↓/ENTER] NEXT/PREV · [ESC] CLOSE";
+        }
         return if d.is_pr {
-            "[A] APPROVE · [M] MERGE · [↑↓] SCROLL · [I] AGENT · [ESC] BACK"
+            "[/] SEARCH · [A] APPROVE · [M] MERGE · [↑↓] SCROLL · [ESC] BACK"
         } else {
-            "[↑↓] SCROLL · [I] AGENT · [ESC] BACK"
+            "[/] SEARCH · [↑↓] SCROLL · [I] AGENT · [ESC] BACK"
         };
     }
     match rv.map(|rv| rv.tab) {

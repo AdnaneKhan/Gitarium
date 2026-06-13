@@ -1,4 +1,4 @@
-# RustVM — conventions
+# Gitarium — conventions
 
 ## File size cap
 

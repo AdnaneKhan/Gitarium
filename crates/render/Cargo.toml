@@ -1,5 +1,5 @@
 [package]
-name = "rustvm-render"
+name = "gitarium-render"
 version.workspace = true
 edition.workspace = true
 
@@ -10,10 +10,10 @@ crate-type = ["rlib"]
 fontdue = { workspace = true }
 js-sys = { workspace = true }
 wasm-bindgen = { workspace = true }
-rustvm-core = { workspace = true }
-rustvm-agent = { workspace = true }
-rustvm-ui = { workspace = true }
-rustvm-app = { workspace = true }
+gitarium-core = { workspace = true }
+gitarium-agent = { workspace = true }
+gitarium-ui = { workspace = true }
+gitarium-app = { workspace = true }
 
 [dependencies.web-sys]
 workspace = true

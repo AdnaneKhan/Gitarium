@@ -1,5 +1,5 @@
 [package]
-name = "rustvm-agent"
+name = "gitarium-agent"
 version.workspace = true
 edition.workspace = true
 
@@ -8,5 +8,11 @@ crate-type = ["rlib"]
 
 [dependencies]
 serde_json = { workspace = true }
-rustvm-core = { workspace = true }
+gitarium-core = { workspace = true }
 web-sys = { workspace = true, features = ["Window", "Storage"] }
+# Runtime inflate of the prompt bundle (already linked via core's knowledge
+# bundle, so no new code in the wasm); deflate side runs in build.rs.
+miniz_oxide = { workspace = true }
+
+[build-dependencies]
+miniz_oxide = { workspace = true }

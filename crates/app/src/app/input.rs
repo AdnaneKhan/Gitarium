@@ -127,6 +127,10 @@ impl App {
                     rv.issues_sel = i;
                 }
             }
+            Click::DetailSearchOpen => self.open_detail_search(),
+            Click::DetailSearchClose => self.close_detail_search(),
+            Click::DetailSearchPrev => self.detail_search_step(-1),
+            Click::DetailSearchNext => self.detail_search_step(1),
             Click::Approve => self.approve_pr(),
             Click::Merge => self.merge_pr(),
             Click::MergeMethodCycle => {

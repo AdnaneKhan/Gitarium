@@ -10,7 +10,7 @@
   <body>
     <canvas id="screen"></canvas>
     <script type="module">
-      import init, { web_start, web_frame, web_key, web_paste, web_wheel, web_debug_text, web_mouse_down, web_mouse_move, web_mouse_up } from "./pkg/rustvm.js";
+      import init, { web_start, web_frame, web_key, web_paste, web_wheel, web_debug_text, web_mouse_down, web_mouse_move, web_mouse_up } from "./pkg/gitarium.js";
       globalThis.host_wake = () => {};
       await init();
       const canvas = document.getElementById("screen");
@@ -32,9 +32,9 @@
       // ?token=… authenticates the session (the test runner reads it from
       // .env.test) so suite runs aren't throttled by anonymous rate limits.
       const token = earlyParams.get("token") || undefined;
-      // The API-proxy test serves this page with window.__RUSTVM_PROXY__ set;
+      // The API-proxy test serves this page with window.__GITARIUM_PROXY__ set;
       // route GitHub calls over a WebSocket to it. Absent → calls go direct.
-      const pp = globalThis.__RUSTVM_PROXY__;
+      const pp = globalThis.__GITARIUM_PROXY__;
       const proxyUrl = pp
         ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host + pp
         : undefined;
@@ -88,20 +88,44 @@
         document.title = "FROZEN";
       }
 
-      // Emoji screenshot (?mode=emoji): anonymous → repos → type emoji into
-      // the filter bar so a screenshot shows whether they render in color.
+      // Emoji visual check (?mode=emoji): anonymous → open-repo overlay with
+      // emoji pasted in, so a screenshot shows whether they render in color.
       if (params.get("mode") === "emoji") {
         await sleep(100);
         enter(); // empty token → anonymous repos screen
         await until("ANONYMOUS MODE");
-        web_key("/", false, false, false);
-        await sleep(100);
-        web_paste("emoji: 🚀 🎉 ✅ ❤ 🔥 👍 🐛 📦 🇺🇸 👍🏽 😀");
-        await sleep(500);
+        web_key("o", false, false, false); // open-repo overlay (a text field)
+        await sleep(150);
+        web_paste("🚀 🎉 ✅ ❤ 🔥 👍 🐛 📦 🇺🇸 👍🏽 😀 :rocket:");
+        await sleep(400);
         running = false;
         await sleep(50);
         web_frame(performance.now());
         document.title = "EMOJI";
+      }
+
+      // Search visual (?mode=search&token=…): open an issue and search, so a
+      // screenshot shows the search box + highlighted matches.
+      if (params.get("mode") === "search") {
+        await until("GITARIUM::GITHUB");
+        web_key("o", false, false, false);
+        await until("owner/repo or organization:");
+        web_paste("sharkdp/fd");
+        enter();
+        await until("CHANGELOG");
+        web_key("t", false, false, false); // issues tab
+        await until("ISSUES · RECENTLY UPDATED");
+        for (let i = 0; i < 100 && !web_debug_text().includes("#"); i++) await sleep(100);
+        enter();
+        await until("DESCRIPTION");
+        web_key("/", false, false, false);
+        await sleep(150);
+        for (const ch of "the") web_key(ch, false, false, false);
+        await sleep(600);
+        running = false;
+        await sleep(50);
+        web_frame(performance.now());
+        document.title = "SEARCH";
       }
 
       // Full regression suite (?mode=suite): results go to the console,
@@ -118,10 +142,10 @@
         const type = (s) => { for (const ch of s) key(ch); };
         const esc = () => key("Escape");
 
-        // "RUSTVM::GITHUB" is the Repos screen title for the user's own
+        // "GITARIUM::GITHUB" is the Repos screen title for the user's own
         // list — present both anonymous and signed in, absent everywhere
         // else — so it works as the "back home" landmark for either mode.
-        const home = "RUSTVM::GITHUB";
+        const home = "GITARIUM::GITHUB";
         if (token) {
           await until(home);
           check("signed in", home);
@@ -383,6 +407,18 @@
           const copied = dbg.includes("copied") || dbg.includes("copy failed");
           results.push(copied);
           console.log(`${copied ? "PASS" : "FAIL"}: select + copy from detail`);
+          // In-page search: '/' opens the box (close chip ✕) and accepts the
+          // typed query; matching/highlight is covered by the screenshot.
+          key("/");
+          await sleep(120);
+          type("descr");
+          await sleep(250);
+          const sd = web_debug_text();
+          const found = sd.includes("descr") && sd.includes("✕");
+          results.push(found);
+          console.log(`${found ? "PASS" : "FAIL"}: detail search`);
+          esc(); // close search
+          await sleep(100);
           esc(); // back to list
           await sleep(150);
         }
