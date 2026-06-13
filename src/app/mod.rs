@@ -9,8 +9,10 @@ mod actions;
 mod agent_compact;
 mod agent_history;
 mod agent_loop;
+mod auth;
 mod chat;
 mod code_keys;
+mod code_search;
 mod file_msgs;
 mod files;
 mod input;
@@ -18,6 +20,7 @@ mod keys;
 mod msg;
 mod overlays;
 mod repo;
+mod repo_msgs;
 mod repos;
 mod search;
 mod state;
@@ -65,6 +68,9 @@ pub struct App {
     /// Owner/name of the repo an async open (OpenRepo overlay) is fetching;
     /// a `RepoOpened` for anything else is stale and dropped.
     pub opening_repo: Option<String>,
+    /// Bumped per code-search submit; a `CodeSearchDone` with a stale gen
+    /// (overlay reopened, query reissued, or navigated away) is dropped.
+    pub(super) code_search_gen: u64,
 
     pub anthropic_key: Option<String>,
     pub anthropic_url: Option<String>,
@@ -100,6 +106,7 @@ impl App {
             overlay: None,
             toast: None,
             opening_repo: None,
+            code_search_gen: 0,
             anthropic_key: crate::agent::load_key(),
             anthropic_url: crate::agent::load_url(),
             agent: AgentChat::new(),

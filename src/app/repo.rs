@@ -5,9 +5,7 @@ use std::collections::HashSet;
 
 use crate::github::{self, Branch, Job, Repo, Run, TreeEntry};
 
-use super::{
-    rebuild_rows, App, ConfirmAction, Loadable, Msg, Overlay, RepoFocus, Route, Tab, TreeRow,
-};
+use super::{App, Loadable, Msg, RepoFocus, Route, Tab, TreeRow};
 
 pub struct RepoView {
     pub repo: Repo,
@@ -28,6 +26,10 @@ pub struct RepoView {
     pub runs_scroll: usize,
     pub jobs: Option<(u64, Loadable<Vec<Job>>)>,
     pub jobs_scroll: usize,
+    /// File path to open once branches arrive (a global code-search hit
+    /// opened this repo). Lives with the RepoView so a superseding open
+    /// can't apply it to the wrong repo; consumed in `on_branches`.
+    pub pending_open_path: Option<String>,
 }
 
 impl RepoView {
@@ -52,6 +54,7 @@ impl RepoView {
             runs_scroll: 0,
             jobs: None,
             jobs_scroll: 0,
+            pending_open_path: None,
         }
     }
 
@@ -82,6 +85,17 @@ impl App {
         let _ = full;
     }
 
+    /// Open `repo` and, once its branches arrive, jump to `then_open` (a
+    /// global code-search hit). The pending path rides the fresh RepoView.
+    pub(super) fn open_repo_then(&mut self, repo: Repo, then_open: Option<String>) {
+        self.open_repo(repo);
+        if then_open.is_some() {
+            if let Some(rv) = &mut self.rv {
+                rv.pending_open_path = then_open;
+            }
+        }
+    }
+
     pub(super) fn load_tree(&mut self) {
         let Some(rv) = &mut self.rv else { return };
         let Some(sha) = rv.branch_sha() else {
@@ -109,77 +123,5 @@ impl App {
         rv.tree_sel = 0;
         rv.tree_scroll = 0;
         self.load_tree();
-    }
-
-    pub(super) fn on_repo_opened(&mut self, name: String, result: Result<Repo, String>) {
-        // Only the most recent async open may act; anything else is a stale
-        // response the user has navigated away from.
-        if self.opening_repo.as_deref() != Some(name.as_str()) {
-            return;
-        }
-        self.opening_repo = None;
-        match result {
-            Ok(repo) => {
-                let modified = self
-                    .rv
-                    .as_ref()
-                    .and_then(|rv| rv.file.as_ref())
-                    .map(|f| f.editor.modified)
-                    .unwrap_or(false);
-                if modified {
-                    self.overlay = Some(Overlay::Confirm {
-                        msg: format!("discard unsaved edits and open {}?", repo.full_name),
-                        action: ConfirmAction::OpenRepo(repo),
-                    });
-                } else {
-                    self.open_repo(repo);
-                }
-            }
-            Err(e) => self.toast = Some((e, true)),
-        }
-    }
-
-    pub(super) fn on_branches(&mut self, repo: String, result: Result<Vec<Branch>, String>) {
-        let current = self.rv.as_ref().map(|rv| rv.repo.full_name.clone());
-        if current.as_deref() != Some(repo.as_str()) {
-            return;
-        }
-        match result {
-            Ok(branches) => {
-                if let Some(rv) = &mut self.rv {
-                    if !branches.iter().any(|b| b.name == rv.branch) {
-                        if let Some(first) = branches.first() {
-                            rv.branch = first.name.clone();
-                        }
-                    }
-                    rv.branches = Loadable::Ready(branches);
-                }
-                self.load_tree();
-            }
-            Err(e) => {
-                if let Some(rv) = &mut self.rv {
-                    rv.branches = Loadable::Failed(e.clone());
-                    rv.tree = Loadable::Failed(e);
-                }
-            }
-        }
-    }
-
-    pub(super) fn on_tree(&mut self, repo: String, result: Result<github::TreeResp, String>) {
-        let Some(rv) = &mut self.rv else { return };
-        if rv.repo.full_name != repo {
-            return;
-        }
-        match result {
-            Ok(mut t) => {
-                rv.truncated = t.truncated;
-                t.tree.retain(|e| e.kind == "blob" || e.kind == "tree");
-                rv.tree = Loadable::Ready(t.tree);
-                rv.tree_sel = 0;
-                rv.tree_scroll = 0;
-                rebuild_rows(rv);
-            }
-            Err(e) => rv.tree = Loadable::Failed(e),
-        }
     }
 }

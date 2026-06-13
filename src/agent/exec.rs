@@ -103,7 +103,7 @@ pub(super) fn format_code_search(res: &github::CodeSearch, page: u32) -> String 
     }
     if res.items.is_empty() {
         out.push_str("no matches — broaden the query or drop qualifiers\n");
-    } else if res.total > page as u64 * 30 {
+    } else if res.total > page as u64 * github::SEARCH_PER_PAGE as u64 {
         out.push_str("…more pages exist (pass page=N); narrow with path:/language:/filename: qualifiers\n");
     }
     out

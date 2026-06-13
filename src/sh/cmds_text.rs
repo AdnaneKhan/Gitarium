@@ -1,4 +1,7 @@
-//! Line-transforming builtins: wc, sort, uniq, cut.
+//! Text-transforming builtins: wc, sort, uniq, cut, base64.
+
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine;
 
 use super::exec::input;
 
@@ -88,6 +91,30 @@ pub(super) fn uniq(args: &[String], stdin: &str) -> Result<String, String> {
     }
     flush(last, count, &mut out);
     Ok(out)
+}
+
+/// base64 [-d] [FILE…] — encode (default) or decode standard base64.
+/// Decoding ignores whitespace, so GitHub's line-wrapped `content` fields
+/// decode without pre-cleaning. Encoding emits one unwrapped line, ready
+/// to drop into a JSON request body. Decoded bytes that are not UTF-8 are
+/// rendered lossily (this is a text shell).
+pub(super) fn base64(args: &[String], stdin: &str) -> Result<String, String> {
+    let mut decode = false;
+    let mut files = Vec::new();
+    for a in args {
+        match a.as_str() {
+            "-d" | "-D" | "--decode" => decode = true,
+            "-e" | "--encode" => decode = false,
+            _ => files.push(a.clone()),
+        }
+    }
+    let text = input(&files, stdin)?;
+    if decode {
+        let bytes = crate::github::b64_decode(&text)?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    } else {
+        Ok(format!("{}\n", B64.encode(text.as_bytes())))
+    }
 }
 
 pub(super) fn cut(args: &[String], stdin: &str) -> Result<String, String> {

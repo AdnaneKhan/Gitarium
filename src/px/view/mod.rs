@@ -5,7 +5,9 @@
 use std::collections::HashMap;
 
 use crate::app::run_icon;
-use crate::app::{AgentItem, App, Click, Loadable, Overlay, RepoFocus, RepoSource, Route, Scroll, Tab};
+use crate::app::{
+    AgentItem, App, Click, Loadable, Overlay, RepoFocus, RepoSource, Route, Scroll, SearchScope, Tab,
+};
 use crate::highlight::{self, LineState};
 use crate::ui::grid::Rect as CellRect;
 use crate::ui::lineinput::LineInput;

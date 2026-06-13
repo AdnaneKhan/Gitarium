@@ -70,6 +70,16 @@ pub enum RepoFocus {
     Content,
 }
 
+/// What a code-search palette searches, and how opening a hit behaves.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SearchScope {
+    /// Within the currently-open repo; opening a hit loads the file here.
+    Repo,
+    /// Across GitHub (the Repos screen); opening a hit fetches that repo,
+    /// then jumps to the file.
+    Global,
+}
+
 pub enum Overlay {
     Commit(LineInput),
     BranchPick { sel: usize, scroll: usize },
@@ -77,6 +87,7 @@ pub enum Overlay {
     /// Find-file palette over the already-fetched recursive tree.
     FileSearch { input: LineInput, sel: usize },
     /// GitHub code-search palette (token required; default branch only).
+    /// `scope` selects repo-local vs. global search.
     CodeSearch {
         input: LineInput,
         sel: usize,
@@ -84,6 +95,17 @@ pub enum Overlay {
         /// opens the selected hit when it matches.
         searched: String,
         results: Loadable<Vec<crate::github::CodeHit>>,
+        scope: SearchScope,
+        /// 1-based index of the last page appended (0 before the first
+        /// result lands); "load more" then requests `page + 1`.
+        page: u32,
+        /// Another page may exist — accumulated hits are below the query's
+        /// total and GitHub's 1000-result search cap. Drives the load-more
+        /// trigger and the hint.
+        more: bool,
+        /// A next-page fetch is in flight: suppresses duplicate load-more
+        /// requests and shows a "loading more" hint.
+        loading_more: bool,
     },
     Help,
     Confirm { msg: String, action: ConfirmAction },
@@ -95,8 +117,10 @@ pub enum ConfirmAction {
     SwitchBranch(String),
     OpenFile(String),
     /// An async `RepoOpened` landed while the current file had unsaved
-    /// edits; opening the fetched repo needs the usual confirm.
-    OpenRepo(Repo),
+    /// edits; opening the fetched repo needs the usual confirm. `then_open`
+    /// carries a file path to jump to once the repo is open (global code
+    /// search), or None for a plain repo open.
+    OpenRepo { repo: Repo, then_open: Option<String> },
 }
 
 /// Mouse hit-regions, rebuilt on every draw.

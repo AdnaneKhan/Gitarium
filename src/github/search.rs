@@ -42,10 +42,14 @@ struct TMatch {
     indices: Vec<usize>,
 }
 
+/// Results requested per page — GitHub's Search API maximum. (It also caps
+/// the reachable total at 1000, i.e. 10 of these pages.)
+pub const SEARCH_PER_PAGE: u32 = 100;
+
 async fn fetch_search(token: &Option<String>, q: &str, page: u32) -> Result<SearchResp, String> {
     let (s, b) = api_with_accept(
         "GET",
-        &format!("/search/code?q={}&per_page=30&page={}", enc(q), page.max(1)),
+        &format!("/search/code?q={}&per_page={}&page={}", enc(q), SEARCH_PER_PAGE, page.max(1)),
         token,
         "application/vnd.github.text-match+json",
         None,
@@ -54,42 +58,53 @@ async fn fetch_search(token: &Option<String>, q: &str, page: u32) -> Result<Sear
     parse(s, b)
 }
 
-/// One code-search hit: the file path plus the matched line, with the match
-/// range in char indices for highlighting.
+/// One code-search hit: the file (with its repo) plus the matched line and
+/// the match range in char indices for highlighting.
 #[derive(Clone, Debug)]
 pub struct CodeHit {
+    pub repo: String,
     pub path: String,
     pub line: String,
     pub range: Option<(usize, usize)>,
 }
 
-/// Repo-scoped search backing the GUI overlay.
+/// One hit per file (matched line + highlight range) for the GUI overlays.
+/// `scope` is an optional qualifier appended to the query — `repo:owner/name`
+/// for the repo-scoped overlay, `None` for the global overlay (where the
+/// user supplies any `org:`/`language:`/… qualifiers themselves). `page` is
+/// 1-based; the overlay loads more pages on demand and appends them. Returns
+/// the page's hits plus the query's `total_count` (so the caller knows
+/// whether further pages exist, up to GitHub's 1000-result cap).
 pub async fn search_code(
     token: &Option<String>,
-    full_name: &str,
     query: &str,
-) -> Result<Vec<CodeHit>, String> {
-    let q = format!("{} repo:{}", query, full_name);
-    let resp = fetch_search(token, &q, 1).await?;
-    Ok(resp
-        .items
-        .into_iter()
-        .map(|it| {
-            let tm = it.text_matches.into_iter().find(|t| !t.fragment.is_empty());
-            let (line, range) = match tm {
-                Some(t) => {
-                    let byte_range = t
-                        .matches
-                        .first()
-                        .filter(|m| m.indices.len() == 2)
-                        .map(|m| (m.indices[0], m.indices[1]));
-                    fragment_line(&t.fragment, byte_range)
-                }
-                None => (String::new(), None),
-            };
-            CodeHit { path: it.path, line, range }
-        })
-        .collect())
+    scope: Option<&str>,
+    page: u32,
+) -> Result<(Vec<CodeHit>, u64), String> {
+    let q = match scope {
+        Some(s) => format!("{} {}", query, s),
+        None => query.to_string(),
+    };
+    let resp = fetch_search(token, &q, page).await?;
+    let total = resp.total_count;
+    Ok((resp.items.into_iter().map(item_to_hit).collect(), total))
+}
+
+fn item_to_hit(it: SearchItem) -> CodeHit {
+    let repo = it.repository.map(|r| r.full_name).unwrap_or_default();
+    let tm = it.text_matches.into_iter().find(|t| !t.fragment.is_empty());
+    let (line, range) = match tm {
+        Some(t) => {
+            let byte_range = t
+                .matches
+                .first()
+                .filter(|m| m.indices.len() == 2)
+                .map(|m| (m.indices[0], m.indices[1]));
+            fragment_line(&t.fragment, byte_range)
+        }
+        None => (String::new(), None),
+    };
+    CodeHit { repo, path: it.path, line, range }
 }
 
 /// One file in an unscoped search: where it lives plus matched lines.
@@ -107,7 +122,7 @@ pub struct CodeSearch {
 }
 
 /// Search anywhere the query's qualifiers allow (agent tool). `page` is
-/// 1-based, 30 items per page.
+/// 1-based, `SEARCH_PER_PAGE` items per page.
 pub async fn search_code_global(
     token: &Option<String>,
     query: &str,

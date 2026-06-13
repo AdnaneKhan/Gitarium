@@ -12,7 +12,7 @@ mod types;
 pub use actions::{list_jobs, list_runs};
 pub use content::{get_blob, get_file, get_tree, list_branches, put_file};
 pub use repos::{current_user, get_repo, repos_first_page, repos_page, RepoPage, MAX_PAGES};
-pub use search::{search_code, search_code_global, CodeHit, CodeMatch, CodeSearch};
+pub use search::{search_code, search_code_global, CodeHit, CodeMatch, CodeSearch, SEARCH_PER_PAGE};
 pub use types::*;
 
 use base64::engine::general_purpose::STANDARD as B64;

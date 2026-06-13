@@ -136,9 +136,9 @@ impl View {
                 if app.filter_active {
                     "[ENTER] APPLY · [ESC] CLEAR"
                 } else if app.repo_source != RepoSource::Mine {
-                    "[/] FILTER · [O] OPEN · [S] SORT · [F] FORKS · [X] ARCHIVED · [ESC] MY REPOS"
+                    "[/] FILTER · [O] OPEN · [G] SEARCH · [S] SORT · [F] FORKS · [X] ARCHIVED · [ESC] MY REPOS"
                 } else {
-                    "[/] FILTER · [O] OPEN REPO/ORG · [S] SORT · [F] FORKS · [X] ARCHIVED · [I] AGENT · [?] HELP"
+                    "[/] FILTER · [O] OPEN · [G] CODE SEARCH · [S] SORT · [F/X] FORKS/ARCHIVED · [I] AGENT · [?] HELP"
                 }
             }
             Route::Repo => {

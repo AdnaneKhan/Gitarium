@@ -24,6 +24,9 @@ pub enum Msg {
     RepoOpened {
         name: String,
         result: Result<github::Repo, String>,
+        /// File path to open once the repo is loaded (global code-search
+        /// hit); None for a plain repo open.
+        then_open: Option<String>,
     },
     Branches {
         repo: String,
@@ -56,9 +59,11 @@ pub enum Msg {
         result: Result<Vec<github::Job>, String>,
     },
     CodeSearchDone {
-        repo: String,
-        query: String,
-        result: Result<Vec<github::CodeHit>, String>,
+        gen: u64,
+        /// 1-based page this result is for: page 1 replaces the list, later
+        /// pages append to it.
+        page: u32,
+        result: Result<(Vec<github::CodeHit>, u64), String>,
     },
     /// One Messages API response in the agent loop.
     AgentResponse {
@@ -80,7 +85,9 @@ impl App {
             Msg::ReposPage { gen, base, page, result } => {
                 self.on_repos_page(gen, base, page, result)
             }
-            Msg::RepoOpened { name, result } => self.on_repo_opened(name, result),
+            Msg::RepoOpened { name, result, then_open } => {
+                self.on_repo_opened(name, result, then_open)
+            }
             Msg::Branches { repo, result } => self.on_branches(repo, result),
             Msg::Tree { repo, result } => self.on_tree(repo, result),
             Msg::FileLoaded { repo, branch, path, result } => {
@@ -91,9 +98,7 @@ impl App {
             }
             Msg::Runs { repo, result } => self.on_runs(repo, result),
             Msg::Jobs { repo, run_id, result } => self.on_jobs(repo, run_id, result),
-            Msg::CodeSearchDone { repo, query, result } => {
-                self.on_code_search_done(repo, query, result)
-            }
+            Msg::CodeSearchDone { gen, page, result } => self.on_code_search_done(gen, page, result),
             Msg::AgentResponse { gen, result } => self.on_agent_response_msg(gen, result),
             Msg::AgentToolsDone { gen, results } => self.on_agent_tools_done(gen, results),
         }

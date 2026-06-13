@@ -172,6 +172,48 @@
         esc();
         await until(home);
 
+        // Global code search from the Repos screen (token-gated like the
+        // repo-scoped one). Opening a hit fetches that repo and jumps to the
+        // file — the cross-repo navigation path.
+        key("g");
+        await sleep(200);
+        if (token) {
+          check("global search opens", "CODE SEARCH · GLOBAL");
+          // "unsafe" is pervasive and well-indexed in rust-lang/rust. Wait on
+          // the "N RESULTS" count (drawn only once hits render) rather than
+          // the repo name — the query text echoes the name in the input field.
+          web_paste("unsafe repo:rust-lang/rust");
+          enter();
+          const hit = await until("RESULTS");
+          check("global search results", "RESULTS");
+          // Mouse-wheel scrolls the results (far more than the 8 visible
+          // rows): the rendered window must change after a downward wheel.
+          if (hit) {
+            const before = web_debug_text();
+            web_wheel(640, 350, 600); // over the results list, scroll down
+            let scrolled = false;
+            for (let i = 0; i < 40 && !scrolled; i++) {
+              await sleep(50);
+              scrolled = web_debug_text() !== before;
+            }
+            results.push(scrolled);
+            console.log(`${scrolled ? "PASS" : "FAIL"}: wheel scrolls code search`);
+          }
+          if (hit) {
+            enter(); // open the top hit → fetch its repo, navigate to the file
+            await until("ACTIONS"); // CODE/ACTIONS tabs appear only in repo view
+            check("cross-repo open", "ACTIONS");
+            esc(); // content → tree
+            await sleep(100);
+            esc(); // leave repo → Repos
+          } else {
+            esc();
+          }
+        } else {
+          check("global search gated", "code search requires an access token");
+        }
+        await until(home);
+
         // Agent window: key prompt → save key → chat surface. No Anthropic
         // call is made; this only exercises the window itself.
         key("i");

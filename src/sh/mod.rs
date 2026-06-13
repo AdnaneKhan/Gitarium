@@ -27,6 +27,7 @@ pub(super) const HELP: &str = "commands:\n\
   sort [-r -n -u]          sort lines\n\
   uniq [-c]                collapse adjacent duplicate lines\n\
   cut -d C -f LIST         split columns (e.g. -d, -f1,3)\n\
+  base64 [-d] [FILE…]      encode, or -d to decode (ignores newlines)\n\
   find [DIR] -name GLOB    locate files by name (* and ?)\n\
   echo [-n] TEXT…          print text\n\
   rm FILE…                 delete files\n\

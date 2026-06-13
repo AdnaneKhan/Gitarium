@@ -5,30 +5,41 @@ use super::*;
 
 impl View {
     pub(super) fn ov_code_search(&mut self, app: &mut App, dl: &mut DrawList, atlas: &mut Atlas, w: f32, h: f32, lift: f32, title: &str) {
-        let Some(Overlay::CodeSearch { input, sel, searched, results }) = &app.overlay else {
+        let Some(Overlay::CodeSearch { input, sel, searched, results, scope, more, loading_more, .. }) =
+            &app.overlay
+        else {
             return;
         };
         let input = input.clone_shallow();
         let sel = *sel;
+        let global = *scope == SearchScope::Global;
         let armed = input.text.trim() != searched.as_str() || searched.is_empty();
         enum RState {
             Idle,
             Loading,
             Failed(String),
-            Hits(Vec<(String, String, Option<(usize, usize)>)>),
+            // (repo, path, line, range) — repo shown only in global mode.
+            Hits(Vec<(String, String, String, Option<(usize, usize)>)>),
         }
         let state = match results {
             Loadable::Idle => RState::Idle,
             Loadable::Loading => RState::Loading,
             Loadable::Failed(e) => RState::Failed(e.clone()),
             Loadable::Ready(h) => RState::Hits(
-                h.iter().map(|c| (c.path.clone(), c.line.clone(), c.range)).collect(),
+                h.iter().map(|c| (c.repo.clone(), c.path.clone(), c.line.clone(), c.range)).collect(),
             ),
         };
         let hits_len = match &state {
             RState::Hits(h) => h.len(),
             _ => 0,
         };
+        // No result list to scroll (idle / loading / no hits): park the shared
+        // overlay scroll at the top so a fresh search starts unscrolled.
+        if hits_len == 0 {
+            if let Some(s) = self.scrolls.get_mut(&skey(Scroll::Overlay)) {
+                s.snap(0.0);
+            }
+        }
         let row_h = self.f(40.0);
         let visible = hits_len.min(8);
         let list_h = visible.max(1) as f32 * row_h;
@@ -44,7 +55,15 @@ impl View {
         let field = RectF::new(r.x + self.f(24.0), r.y + self.f(48.0), r.w - self.f(48.0), self.f(38.0));
         self.input_field(dl, atlas, &input, field, true);
         let hint = if armed {
-            "[ENTER] SEARCH · GITHUB CODE SEARCH · DEFAULT BRANCH ONLY"
+            if global {
+                "[ENTER] SEARCH ANYWHERE · org: repo: language: path: QUALIFIERS · DEFAULT BRANCH"
+            } else {
+                "[ENTER] SEARCH · GITHUB CODE SEARCH · DEFAULT BRANCH ONLY"
+            }
+        } else if *loading_more {
+            "[ENTER] OPEN · ↑↓ SELECT · LOADING MORE…"
+        } else if *more {
+            "[ENTER] OPEN · ↑↓ SELECT · ↓ AT END LOADS MORE"
         } else {
             "[ENTER] OPEN · ↑↓ SELECT · EDIT QUERY TO SEARCH AGAIN"
         };
@@ -66,26 +85,38 @@ impl View {
                 if hits.is_empty() {
                     dl.text(atlas, UI, self.f(13.0), r.x + self.f(24.0), y0 + self.f(16.0), "no results", FAINT, self.f(1.0));
                 }
+                let list = RectF::new(r.x + self.f(16.0), y0, r.w - self.f(32.0), list_h);
                 let sel = sel.min(hits.len().saturating_sub(1));
-                let first = if sel >= visible && visible > 0 { sel + 1 - visible } else { 0 };
-                for vis in 0..visible {
+                // Branch-picker pattern: a smooth offset that follows the
+                // selection during keyboard nav and is free to wheel-scroll.
+                let offset = self.list_scroll(Scroll::Overlay, Z_GREP, sel, hits.len(), row_h, list.h);
+                dl.push_clip(list);
+                let first = (offset / row_h) as usize;
+                for vis in 0..(list.h / row_h) as usize + 2 {
                     let i = first + vis;
-                    let (path, line, range) = &hits[i];
-                    let y = y0 + vis as f32 * row_h;
-                    let rr = RectF::new(r.x + self.f(16.0), y, r.w - self.f(32.0), row_h - 4.0);
+                    if i >= hits.len() {
+                        break;
+                    }
+                    let (repo, path, line, range) = &hits[i];
+                    let y = list.y + i as f32 * row_h - offset;
+                    let rr = RectF::new(list.x, y, list.w, row_h - 4.0);
                     let hv = self.hover_amt(wid(Z_GREP, i), rr.contains(self.mouse.0, self.mouse.1));
                     let a = if i == sel { 0.13 } else { 0.06 * hv };
                     if a > 0.005 {
                         dl.rrect(rr, self.f(3.0), with_a(CYAN, a), 1.0);
                     }
                     dl.push_clip(rr);
-                    // Line 1: path (dir dim, filename bright).
+                    // Line 1: [repo › ] path (repo magenta in global mode,
+                    // dir dim, filename bright).
                     let b1 = y + self.f(15.0);
                     let (dir, name) = match path.rsplit_once('/') {
                         Some((d, n)) => (format!("{}/", d), n.to_string()),
                         None => (String::new(), path.clone()),
                     };
                     let mut x = rr.x + self.f(10.0);
+                    if global && !repo.is_empty() {
+                        x = dl.text(atlas, MONO, self.f(11.5), x, b1, &format!("{} · ", repo), with_a(MAGENTA, 0.9), 0.0);
+                    }
                     if !dir.is_empty() {
                         x = dl.text(atlas, MONO, self.f(11.5), x, b1, &dir, FAINT, 0.0);
                     }
@@ -111,6 +142,14 @@ impl View {
                     dl.pop_clip();
                     self.clicks.push((rr, Click::OverlayItem(i)));
                 }
+                dl.pop_clip();
+                self.scrollbar(dl, &list, hits.len() as f32 * row_h, offset);
+                self.wheels.push((
+                    list,
+                    Scroll::Overlay,
+                    row_h,
+                    (hits.len() as f32 * row_h - list.h).max(0.0),
+                ));
             }
         }
     }

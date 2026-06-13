@@ -37,7 +37,7 @@ fn parses_code_search_calls() {
 #[test]
 fn formats_code_search_results() {
     let res = CodeSearch {
-        total: 71,
+        total: 271,
         incomplete: false,
         items: vec![
             CodeMatch {
@@ -49,17 +49,17 @@ fn formats_code_search_results() {
         ],
     };
     let out = format_code_search(&res, 1);
-    assert!(out.starts_with("71 matching files · page 1\n"), "{}", out);
+    assert!(out.starts_with("271 matching files · page 1\n"), "{}", out);
     assert!(out.contains("a/b src/x.rs\n  > fn live_gen() {\n  > use LIVE_GEN;\n"), "{}", out);
     assert!(out.contains("c/d lib/y.ts\n"), "{}", out);
-    // 71 > 30: pagination hint present.
+    // 271 > 100 (one page): pagination hint present.
     assert!(out.contains("more pages exist"), "{}", out);
 
-    // Page 3 of 71 (last page): no pagination hint; incomplete flag = ~.
-    let res = CodeSearch { total: 71, incomplete: true, items: vec![CodeMatch {
+    // Page 3 of 271 (last page — 300 ≥ 271): no hint; incomplete flag = ~.
+    let res = CodeSearch { total: 271, incomplete: true, items: vec![CodeMatch {
         repo: "a/b".into(), path: "z".into(), lines: vec![] }] };
     let out = format_code_search(&res, 3);
-    assert!(out.starts_with("~71 matching files · page 3\n"), "{}", out);
+    assert!(out.starts_with("~271 matching files · page 3\n"), "{}", out);
     assert!(!out.contains("more pages exist"), "{}", out);
 }
 

@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref so pushes don't pile up.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain (with wasm target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # Caches the cargo registry, git deps, and target/ keyed on Cargo.lock,
+      # so unchanged dependencies aren't recompiled on every run.
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Test (native)
+        run: cargo test
+
+      # Compiles the crate for wasm32 and emits pkg/ (rustvm.js + rustvm_bg.wasm).
+      - name: Build wasm (release)
+        run: wasm-pack build --target web
+
+      # Inlines glue + base64 wasm into a single self-contained dist/rustvm.html.
+      - name: Build single-file dist.html
+        run: bun build-html.ts
+
+      # compression-level 0 = stored, uncompressed ("zip-less") entries: the
+      # base64 HTML and the wasm barely shrink, so skipping deflate is faster.
+      - name: Upload dist.html artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustvm-dist-html
+          path: dist/rustvm.html
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustvm-wasm
+          path: pkg/rustvm_bg.wasm
+          compression-level: 0
+          if-no-files-found: error
+
+  # Optional headless-Chrome run of the WebGL/Canvas2D harness. Non-blocking
+  # (continue-on-error) because the live-API suite hits api.github.com and can
+  # flake or rate-limit. The API-free boot smokes always run; the full suite
+  # runs only when the live-API token is configured.
+  #
+  # To enable the full suite, add a repository secret named RUSTVM_TEST_TOKEN
+  # (a GitHub PAT). The name can't be GITHUB_TOKEN — the GITHUB_ prefix is
+  # reserved for secrets — so it's mapped onto $GITHUB_TOKEN below, which is
+  # the only token source the harness reads in CI (never the .env.test file).
+  browser-tests:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      TEST_TOKEN: ${{ secrets.RUSTVM_TEST_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain (with wasm target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      # The harness imports ./pkg/rustvm.js, so the wasm build must run first.
+      - name: Build wasm (release)
+        run: wasm-pack build --target web
+
+      # Chrome is preinstalled on ubuntu-latest; the harness reads $CHROME.
+      - name: Browser suite (live API + boot smokes)
+        if: env.TEST_TOKEN != ''
+        env:
+          CHROME: google-chrome
+          GITHUB_TOKEN: ${{ env.TEST_TOKEN }}
+        run: bun test-browser.ts
+
+      - name: Browser boot smokes (API-free)
+        if: env.TEST_TOKEN == ''
+        env:
+          CHROME: google-chrome
+        run: bun test-browser.ts --smoke

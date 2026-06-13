@@ -68,21 +68,6 @@ fn drain_msgs(app: &mut App) {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy demo export (kept from the original project)
-// ---------------------------------------------------------------------------
-
-#[wasm_bindgen]
-pub async fn fetch_url(url: String) -> Result<String, JsValue> {
-    let resp = fetch::request("GET", &url, &[], None)
-        .await
-        .map_err(|e| JsValue::from_str(&e))?;
-    if !(200..300).contains(&resp.status) {
-        return Err(JsValue::from_str(&format!("HTTP {}", resp.status)));
-    }
-    Ok(resp.body)
-}
-
-// ---------------------------------------------------------------------------
 // Browser host
 // ---------------------------------------------------------------------------
 

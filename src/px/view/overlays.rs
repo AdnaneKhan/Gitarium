@@ -33,6 +33,7 @@ impl View {
             Overlay::OpenRepo(_) => "OPEN REPOSITORY",
             Overlay::BranchPick { .. } => "SWITCH BRANCH",
             Overlay::FileSearch { .. } => "FIND FILE",
+            Overlay::CodeSearch { scope: SearchScope::Global, .. } => "CODE SEARCH · GLOBAL",
             Overlay::CodeSearch { .. } => "CODE SEARCH",
             Overlay::Confirm { .. } => "CONFIRM",
             Overlay::Help => "KEYMAP",
@@ -98,12 +99,13 @@ impl View {
 
     #[allow(clippy::too_many_arguments)]
     fn ov_help(&mut self, dl: &mut DrawList, atlas: &mut Atlas, w: f32, h: f32, pw: f32, lift: f32, title: &str) {
-        let lines: [(&str, &str); 18] = [
+        let lines: [(&str, &str); 19] = [
             ("GLOBAL", ""),
             ("?", "this help · esc closes"),
             ("REPOSITORIES", ""),
             ("/ O R ENTER", "filter · open repo or org · reload · open"),
             ("S ⇧S F X", "cycle sort · flip order · toggle forks/archived"),
+            ("G", "global code search across GitHub (needs token)"),
             ("CODE", ""),
             ("↑↓ ←→ ENTER", "navigate tree · expand/collapse · open"),
             ("/", "find file across the whole tree"),

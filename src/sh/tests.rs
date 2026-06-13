@@ -40,6 +40,48 @@ fn jq_full_language() {
 }
 
 #[test]
+fn base64_command_encodes_and_decodes() {
+    vfs::clear();
+    let (out, ok) = run("echo -n hi | base64");
+    assert!(ok, "{}", out);
+    assert_eq!(out, "aGk=\n");
+    // -d tolerates the newlines GitHub wraps `content` with: pull the field
+    // with jq, pipe straight into base64 -d, no pre-cleaning needed. (The
+    // trailing \n is run()'s display normalization, like cat — base64 -d
+    // itself adds none.)
+    vfs::write("/r1.json", "{\"content\":\"SGVsbG8s\\nIFdvcmxkIQ==\\n\"}".into());
+    let (out, ok) = run("jq -r '.content' /r1.json | base64 -d");
+    assert!(ok, "{}", out);
+    assert_eq!(out, "Hello, World!\n");
+    // --decode alias, decoding from a literal arg via echo.
+    let (out, ok) = run("echo aGk= | base64 --decode");
+    assert!(ok, "{}", out);
+    assert_eq!(out, "hi\n");
+}
+
+#[test]
+fn jq_base64_decode_handles_github_contents() {
+    // The `base64` command is the primary decode path, but jq's @base64d
+    // is a valid in-filter alternative — with one sharp edge: unlike the
+    // base64 command, @base64d is strict and rejects the newlines GitHub
+    // wraps `content` with, so it needs an explicit gsub. This pins that
+    // quirk so the two paths' differing tolerance stays documented.
+    vfs::clear();
+    // {"content":"SGVsbG8s\nIFdvcmxkIQ==\n"} — "Hello, World!" wrapped.
+    vfs::write("/r1.json", "{\"content\":\"SGVsbG8s\\nIFdvcmxkIQ==\\n\"}".into());
+    // @base64d is strict — the embedded \n must be stripped first, or it
+    // errors with "Invalid symbol 10". gsub does that in-filter.
+    let (out, ok) = run("jq -r '.content | gsub(\"\\n\";\"\") | @base64d' /r1.json");
+    assert!(ok, "{}", out);
+    assert_eq!(out, "Hello, World!\n");
+    // On already-clean base64 it decodes directly; @base64 encodes too.
+    // (Input via stdin — this jq wrapper has no -n/null-input flag.)
+    let (out, ok) = run("echo '\"hi\"' | jq -r '@base64 | @base64d'");
+    assert!(ok, "{}", out);
+    assert_eq!(out, "hi\n");
+}
+
+#[test]
 fn sequencing_and_errors() {
     vfs::clear();
     let (out, ok) = run("rm /missing && echo never");

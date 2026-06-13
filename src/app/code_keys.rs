@@ -6,7 +6,7 @@ use crate::ui::lineinput::LineInput;
 
 use super::file_msgs::rehighlight;
 use super::keys::plain;
-use super::{App, ConfirmAction, Loadable, Overlay, RepoFocus, Route, Tab};
+use super::{App, ConfirmAction, Loadable, Overlay, RepoFocus, Route, SearchScope, Tab};
 
 impl App {
     pub(super) fn repo_key(&mut self, key: Key, mods: Mods) -> bool {
@@ -74,6 +74,10 @@ impl App {
                         sel: 0,
                         searched: String::new(),
                         results: Loadable::Idle,
+                        scope: SearchScope::Repo,
+                        page: 0,
+                        more: false,
+                        loading_more: false,
                     });
                 }
             }

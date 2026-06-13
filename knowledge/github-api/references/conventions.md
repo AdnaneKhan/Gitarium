@@ -51,7 +51,9 @@ regenerated from the OpenAPI description.
 - `application/vnd.github.diff` / `.patch` — diff/patch of a commit or PR.
 - `application/vnd.github.html+json` — rendered HTML for markdown bodies.
 - Default contents API response wraps files as base64 in JSON (`content`,
-  `encoding` fields) — decode before use.
+  `encoding` fields), line-wrapped with newlines. Decode in the shell:
+  `jq -r '.content' /rN.json | base64 -d` (the `base64 -d` builtin ignores
+  the wrapping newlines; jq's `@base64d` does not — it needs a `gsub`).
 
 ## Errors
 

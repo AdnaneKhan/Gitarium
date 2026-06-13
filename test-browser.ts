@@ -14,7 +14,10 @@ const CHROME =
   process.env.CHROME ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
-async function envTestToken(): Promise<string | undefined> {
+// CI injects the token via $GITHUB_TOKEN (from a repo secret); locally it
+// comes from the gitignored .env.test. Env wins so CI never reads the file.
+async function resolveToken(): Promise<string | undefined> {
+  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
   const f = Bun.file(import.meta.dir + "/.env.test");
   if (!(await f.exists())) return undefined;
   for (const line of (await f.text()).split("\n")) {
@@ -80,13 +83,25 @@ async function run(label: string, query: string, shot: string): Promise<boolean>
   return true;
 }
 
-const token = await envTestToken();
-if (!token) console.log("(no .env.test GITHUB_TOKEN — suite runs anonymous, rate-limited)");
-const suiteQuery = `mode=suite${token ? `&token=${encodeURIComponent(token)}` : ""}`;
+// `--smoke` runs only the API-free boot checks — the CI default when no
+// token is configured, since the full suite drives the live GitHub API.
+const smokeOnly = process.argv.includes("--smoke");
+const token = await resolveToken();
 
-const ok =
-  (await run("full suite (webgl2)", suiteQuery, "/tmp/rustvm-suite.png")) &&
-  (await run("boot smoke (forced webgl1)", "mode=boot&gl=1", "/tmp/rustvm-gl1.png")) &&
-  (await run("boot smoke (forced canvas2d)", "mode=boot&gl=0", "/tmp/rustvm-canvas2d.png"));
+const boots: Array<() => Promise<boolean>> = [
+  () => run("boot smoke (forced webgl1)", "mode=boot&gl=1", "/tmp/rustvm-gl1.png"),
+  () => run("boot smoke (forced canvas2d)", "mode=boot&gl=0", "/tmp/rustvm-canvas2d.png"),
+];
+
+let ok = true;
+if (smokeOnly) {
+  console.log("(--smoke: API-free boot checks only, skipping live-API suite)");
+} else {
+  if (!token) console.log("(no GITHUB_TOKEN — suite runs anonymous, rate-limited)");
+  const suiteQuery = `mode=suite${token ? `&token=${encodeURIComponent(token)}` : ""}`;
+  ok = await run("full suite (webgl2)", suiteQuery, "/tmp/rustvm-suite.png");
+}
+for (const b of boots) ok = (await b()) && ok;
+
 server.stop();
 if (!ok) process.exitCode = 1;

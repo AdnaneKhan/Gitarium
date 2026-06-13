@@ -1,6 +1,6 @@
 # RustVM
 
-A GitHub client written entirely in Rust, compiled to WebAssembly, rendered
+A lightweight GitHub client written entirely in Rust, compiled to WebAssembly, rendered
 as a **fully GPU-drawn cyberpunk HUD** in the browser: hand-rolled WebGL (2 or 1, with a Canvas2D software fallback for GPU-less machines)
 renderer with SDF rounded rects / borders / neon glows computed in the
 fragment shader, a multi-font glyph atlas (Rajdhani for UI, JetBrains Mono
@@ -92,6 +92,3 @@ page also has screenshot drive modes (`?repo=…`, `?mode=actions`,
 | `serve.ts`         | Static server                                                  |
 | `build-html.ts`    | Single-file bundler                                            |
 | `test-browser.ts`  | Headless-Chrome suite runner                                   |
-
-The legacy `fetch_url()` export from the project's first iteration still
-works.

@@ -97,6 +97,7 @@ fn exec_cmd(name: &str, args: &[String], stdin: &str) -> Result<String, String> 
         "sort" => cmds_text::sort_cmd(args, stdin),
         "uniq" => cmds_text::uniq(args, stdin),
         "cut" => cmds_text::cut(args, stdin),
+        "base64" => cmds_text::base64(args, stdin),
         "find" => cmds_fs::find(args),
         "rm" => cmds_fs::rm(args),
         "jq" => jq::jq_cmd(args, stdin),

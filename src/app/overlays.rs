@@ -63,7 +63,7 @@ impl App {
                     let token = self.token.clone();
                     crate::spawn_msg(async move {
                         let result = github::get_repo(&token, &name).await;
-                        Msg::RepoOpened { name, result }
+                        Msg::RepoOpened { name, result, then_open: None }
                     });
                 } else {
                     // Bare name: browse that organization (or user).
@@ -152,7 +152,9 @@ impl App {
                     }
                     ConfirmAction::SwitchBranch(name) => self.switch_branch(name),
                     ConfirmAction::OpenFile(path) => self.open_file(path),
-                    ConfirmAction::OpenRepo(repo) => self.open_repo(repo),
+                    ConfirmAction::OpenRepo { repo, then_open } => {
+                        self.open_repo_then(repo, then_open)
+                    }
                 }
                 true
             }

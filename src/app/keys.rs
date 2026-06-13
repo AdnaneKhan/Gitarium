@@ -1,11 +1,11 @@
-//! Top-level event dispatch, auth handling, and the Repos screen keys.
-//! Every handler reports whether it consumed the event (the host uses this
-//! for preventDefault — unconsumed keys keep their browser behavior).
+//! Top-level event dispatch and the Repos screen keys. Every handler
+//! reports whether it consumed the event (the host uses this for
+//! preventDefault — unconsumed keys keep their browser behavior). Auth-screen
+//! handling lives in `auth.rs`.
 
-use crate::github;
 use crate::ui::input::{Event, Key, Mods};
 
-use super::{App, Loadable, LineInput, Msg, Overlay, RepoSource, Route};
+use super::{App, LineInput, Loadable, Overlay, RepoSource, Route, SearchScope};
 
 /// A char binding fires only without Ctrl/Alt (Cmd arrives as ctrl from the
 /// host) so browser shortcuts are never shadowed by single-key bindings.
@@ -31,59 +31,6 @@ impl App {
                 }
             }
             Event::Paste(text) => self.on_paste(text),
-        }
-    }
-
-    pub(super) fn validate_token(&mut self, t: String) {
-        self.auth_busy = true;
-        self.auth_error = None;
-        let token = Some(t.clone());
-        crate::spawn_msg(async move {
-            let result = github::current_user(&token).await;
-            Msg::TokenChecked { token, result }
-        });
-    }
-
-    pub(super) fn on_token_checked(
-        &mut self,
-        token: Option<String>,
-        result: Result<github::User, String>,
-    ) {
-        self.auth_busy = false;
-        match result {
-            Ok(user) => {
-                self.token = token;
-                self.login = Some(user.login);
-                self.route = Route::Repos;
-                self.load_repos();
-            }
-            Err(e) => {
-                self.auth_error = Some(e);
-                self.route = Route::Auth;
-            }
-        }
-    }
-
-    fn auth_key(&mut self, key: Key, mods: Mods) -> bool {
-        if self.auth_busy {
-            return false;
-        }
-        match key {
-            Key::Enter => {
-                let t = self.token_input.text.trim().to_string();
-                if t.is_empty() {
-                    // Anonymous mode: public repos, read-only commits will fail.
-                    self.token = None;
-                    self.login = None;
-                    self.route = Route::Repos;
-                    self.repos = Loadable::Idle;
-                    self.overlay = Some(Overlay::OpenRepo(LineInput::new(false)));
-                } else {
-                    self.validate_token(t);
-                }
-                true
-            }
-            k => self.token_input.handle_key(&k, mods),
         }
     }
 
@@ -123,6 +70,24 @@ impl App {
             Key::Char('i') if plain(mods) => self.open_agent(),
             Key::Char('o') if plain(mods) => {
                 self.overlay = Some(Overlay::OpenRepo(LineInput::new(false)))
+            }
+            Key::Char('g') if plain(mods) => {
+                // Global code search across GitHub. Requires auth, like the
+                // repo-scoped one; opening a hit fetches that repo + file.
+                if self.token.is_none() {
+                    self.toast = Some(("code search requires an access token".into(), true));
+                } else {
+                    self.overlay = Some(Overlay::CodeSearch {
+                        input: LineInput::new(false),
+                        sel: 0,
+                        searched: String::new(),
+                        results: Loadable::Idle,
+                        scope: SearchScope::Global,
+                        page: 0,
+                        more: false,
+                        loading_more: false,
+                    });
+                }
             }
             Key::Char('r') if plain(mods) => self.load_repos(),
             Key::Char('f') if plain(mods) => {
