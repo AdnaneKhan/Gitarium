@@ -57,12 +57,11 @@ jobs:
       # compression-level 0 = stored, uncompressed ("zip-less") entries: the
       # base64 HTML and the wasm barely shrink, so skipping deflate is faster.
       - name: Upload dist.html artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: gitarium-dist-html
           path: dist/gitarium.html
-          compression-level: 0
           if-no-files-found: error
+          archive: false
 
       - name: Upload wasm artifact
         uses: actions/upload-artifact@v4
