@@ -8,9 +8,15 @@ for code) with kerning and letter-tracking, browser-rasterized **color emoji**,
 smooth scrolling, hover animations, blinking caret, scanline overlay. No DOM,
 no CSS — every pixel comes out of the shader.
 
-Rust does everything — layout, widgets, text editing, syntax highlighting, a
+
+Everything is in WASM — layout, widgets, text editing, syntax highlighting, a
 from-scratch Markdown renderer, animation timing, GitHub API calls (via
 `globalThis.fetch`).
+
+<img width="1323" height="733" alt="image" src="https://github.com/user-attachments/assets/14099f0f-fffa-4b24-9337-9f3aa7ac1ad6" />
+
+<img width="1320" height="660" alt="image" src="https://github.com/user-attachments/assets/0ea6c6a2-11c9-49d3-a3f2-15e3a1f1591c" />
+
 
 > **New to the codebase?** [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the map —
 > how the crates fit together, the runtime loop, each subsystem, and the
