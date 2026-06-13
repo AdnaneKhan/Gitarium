@@ -21,6 +21,11 @@ jaq-std = "3.0.1"
 jaq-json = "2.0.1"
 shlex = "2.0.1"
 regex-lite = "0.1.9"
+# Inflate-only at runtime (knowledge bundle); deflate happens in build.rs.
+miniz_oxide = "0.8"
+
+[build-dependencies]
+miniz_oxide = "0.8"
 
 [dependencies.web-sys]
 version = "0.3"
@@ -36,13 +41,14 @@ features = [
   "Document",
   "Element",
   "HtmlCanvasElement",
-  "WebGl2RenderingContext",
+  "CanvasRenderingContext2d",
+  "ImageData",
+  "WebGlRenderingContext",
   "WebGlBuffer",
   "WebGlProgram",
   "WebGlShader",
   "WebGlTexture",
   "WebGlUniformLocation",
-  "WebGlVertexArrayObject",
 ]
 
 [profile.release]

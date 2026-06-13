@@ -1,7 +1,7 @@
 # RustVM
 
 A GitHub client written entirely in Rust, compiled to WebAssembly, rendered
-as a **fully GPU-drawn cyberpunk HUD** in the browser: hand-rolled WebGL2
+as a **fully GPU-drawn cyberpunk HUD** in the browser: hand-rolled WebGL (2 or 1, with a Canvas2D software fallback for GPU-less machines)
 renderer with SDF rounded rects / borders / neon glows computed in the
 fragment shader, a multi-font glyph atlas (Rajdhani for UI, JetBrains Mono
 for code) with kerning and letter-tracking, smooth scrolling, hover
@@ -80,7 +80,7 @@ page also has screenshot drive modes (`?repo=…`, `?mode=actions`,
 | Path               | Purpose                                                        |
 | ------------------ | -------------------------------------------------------------- |
 | `src/app/`         | State machine (routes, messages, keymap) + text editor         |
-| `src/px/`          | GPU UI: SDF WebGL2 renderer, multi-font atlas, HUD views       |
+| `src/px/`          | UI: SDF WebGL renderer + Canvas2D fallback, multi-font atlas, HUD views       |
 | `src/ui/`          | Shared primitives: colors, rects, key events, line-input model |
 | `src/github.rs`    | GitHub REST client (repos/orgs/trees/contents/commits/actions) |
 | `src/agent.rs`     | Claude agent: Anthropic Messages API + generic GitHub tool     |

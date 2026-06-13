@@ -17,7 +17,22 @@
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.floor(canvas.clientWidth * dpr);
       canvas.height = Math.floor(canvas.clientHeight * dpr);
-      web_start("screen", 15 * dpr, undefined);
+      // ?gl=1 hides WebGL2 (forces the WebGL1 fallback); ?gl=0 hides every
+      // WebGL flavor (forces the Canvas2D software backend).
+      const earlyParams = new URLSearchParams(location.search);
+      const glParam = earlyParams.get("gl");
+      if (glParam === "1" || glParam === "0") {
+        const blocked =
+          glParam === "0" ? ["webgl2", "webgl", "experimental-webgl"] : ["webgl2"];
+        const orig = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+          return blocked.includes(type) ? null : orig.call(this, type, ...rest);
+        };
+      }
+      // ?token=… authenticates the session (the test runner reads it from
+      // .env.test) so suite runs aren't throttled by anonymous rate limits.
+      const token = earlyParams.get("token") || undefined;
+      web_start("screen", 15 * dpr, token);
       let running = true;
       const loop = (t) => { web_frame(t); if (running) requestAnimationFrame(loop); };
       requestAnimationFrame(loop);
@@ -33,6 +48,40 @@
       };
       const params = new URLSearchParams(location.search);
 
+      // Boot smoke (?mode=boot): renderer construction + first frames only,
+      // no GitHub API traffic. Paired with ?gl=1 it proves the WebGL1
+      // fallback acquires a context, compiles the shaders, and renders.
+      if (params.get("mode") === "boot") {
+        const ok = await until("ACCESS TOKEN");
+        const glOk =
+          glParam == null ||
+          document.getElementById("screen").getContext("webgl2") === null;
+        console.log(`${ok ? "PASS" : "FAIL"}: boot renders auth screen`);
+        console.log(`${glOk ? "PASS" : "FAIL"}: webgl hidden under gl=${glParam}`);
+        console.log(`SUITE: ${(ok ? 1 : 0) + (glOk ? 1 : 0)}/2 passed`);
+        running = false;
+        document.title = ok && glOk ? "SELFTEST-OK" : "SELFTEST-FAIL";
+      }
+
+      // Frozen capture (?mode=freeze): drive to the opened-README state,
+      // let animations settle, then stop the loop so the screenshot grabs
+      // a static frame — used to pixel-compare rendering backends.
+      if (params.get("mode") === "freeze") {
+        await sleep(100);
+        enter();
+        await until("owner/repo or organization:");
+        web_paste("octocat/Hello-World");
+        enter();
+        await until("README");
+        enter();
+        await until("Hello World!");
+        await sleep(1200); // smooth scroll / entrance easing settles
+        running = false;
+        await sleep(50);
+        web_frame(performance.now());
+        document.title = "FROZEN";
+      }
+
       // Full regression suite (?mode=suite): results go to the console,
       // which the test-browser.ts runner captures from Chrome's stderr.
       if (params.get("mode") === "suite") {
@@ -47,8 +96,18 @@
         const type = (s) => { for (const ch of s) key(ch); };
         const esc = () => key("Escape");
 
-        check("auth screen", "ACCESS TOKEN");
-        enter();
+        // "RUSTVM::GITHUB" is the Repos screen title for the user's own
+        // list — present both anonymous and signed in, absent everywhere
+        // else — so it works as the "back home" landmark for either mode.
+        const home = "RUSTVM::GITHUB";
+        if (token) {
+          await until(home);
+          check("signed in", home);
+          key("o");
+        } else {
+          check("auth screen", "ACCESS TOKEN");
+          enter();
+        }
         await until("owner/repo or organization:");
         check("open overlay", "owner/repo or organization:");
 
@@ -84,28 +143,34 @@
         await sleep(100);
 
         esc();
-        await until("ANONYMOUS MODE");
-        check("back from org", "ANONYMOUS MODE");
+        await until(home);
+        check("back from org", home);
 
         // Pagination: rust-lang has well over 100 repos, so the count chip
-        // (a standalone "shown/total" text run) can only exceed 100 when
-        // pages past the first were fetched and merged.
+        // (a standalone "shown/total" text run, with a trailing … while
+        // pages stream in) can only exceed 100 when pages past the first
+        // were fetched and merged. Pages populate as they land, so poll
+        // until the merged total passes the first page's size.
         key("o");
         await until("owner/repo or organization:");
         web_paste("rust-lang");
         enter();
         await until("rust-lang/rust");
         {
-          const count = web_debug_text()
-            .split("\n")
-            .find((l) => /^\d+\/\d+$/.test(l.trim()));
-          const total = count ? parseInt(count.trim().split("/")[1], 10) : 0;
+          let total = 0;
+          for (let i = 0; i < 600 && total <= 100; i++) {
+            const count = web_debug_text()
+              .split("\n")
+              .find((l) => /^\d+\/\d+…?$/.test(l.trim()));
+            total = count ? parseInt(count.trim().split("/")[1], 10) : 0;
+            if (total <= 100) await sleep(100);
+          }
           const ok = total > 100;
           results.push(ok);
           console.log(`${ok ? "PASS" : "FAIL"}: org pagination (${total} repos)`);
         }
         esc();
-        await until("ANONYMOUS MODE");
+        await until(home);
 
         // Agent window: key prompt → save key → chat surface. No Anthropic
         // call is made; this only exercises the window itself.
@@ -122,8 +187,8 @@
         check("agent model chip", "CLAUDE-OPUS-4-8");
         check("agent endpoint chip", "· proxy.example.com");
         esc();
-        await until("ANONYMOUS MODE");
-        check("back from agent", "ANONYMOUS MODE");
+        await until(home);
+        check("back from agent", home);
 
         // User-account fallback.
         key("o");
@@ -174,7 +239,7 @@
         esc(); // leave repo → confirm discard (buffer modified)
         await sleep(200);
         if (web_debug_text().includes("CONFIRM")) enter();
-        await until("ANONYMOUS MODE");
+        await until(home);
         key("o");
         await until("owner/repo or organization:");
         web_paste("sharkdp/fd");
@@ -198,7 +263,13 @@
         // Code search is token-gated; anonymous gets the explanatory toast.
         key("g");
         await sleep(200);
-        check("code search gated", "code search requires an access token");
+        if (token) {
+          check("code search opens", "CODE SEARCH");
+          esc();
+          await sleep(150);
+        } else {
+          check("code search gated", "code search requires an access token");
+        }
 
         key("a");
         await until("WORKFLOW RUNS");
@@ -212,7 +283,7 @@
         console.log(`SUITE: ${pass}/${results.length} passed`);
         document.title = pass === results.length ? "SUITE-OK" : "SUITE-FAIL";
         running = false; // stop rAF so virtual time drains and Chrome exits
-      } else {
+      } else if (params.get("mode") !== "boot") {
       // Auto-drive: anonymous → open a repo → open the last root file
       // (or the Actions tab with ?mode=actions).
       const target = params.get("repo") || "octocat/Hello-World";

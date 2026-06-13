@@ -25,15 +25,40 @@ pub fn norm(path: &str) -> String {
     format!("/{}", parts.join("/"))
 }
 
-pub fn write(path: &str, content: String) {
-    FS.with(|f| {
-        f.borrow_mut().1.insert(norm(path), content);
-    });
+/// True for paths under the read-only knowledge mount (see
+/// docs/knowledge-modules.md): baked in at build time, never writable.
+fn read_only(path: &str) -> bool {
+    path == "/knowledge" || path.starts_with("/knowledge/")
 }
 
-pub fn append(path: &str, content: &str) {
+/// Write `content` to `path`; false (and unchanged) if the path is read-only.
+pub fn write(path: &str, content: String) -> bool {
+    let p = norm(path);
+    if read_only(&p) {
+        return false;
+    }
     FS.with(|f| {
-        f.borrow_mut().1.entry(norm(path)).or_default().push_str(content);
+        f.borrow_mut().1.insert(p, content);
+    });
+    true
+}
+
+/// Append to `path`; false (and unchanged) if the path is read-only.
+pub fn append(path: &str, content: &str) -> bool {
+    let p = norm(path);
+    if read_only(&p) {
+        return false;
+    }
+    FS.with(|f| {
+        f.borrow_mut().1.entry(p).or_default().push_str(content);
+    });
+    true
+}
+
+/// Install a knowledge file, bypassing the read-only guard (startup only).
+pub(crate) fn seed(path: &str, content: String) {
+    FS.with(|f| {
+        f.borrow_mut().1.insert(norm(path), content);
     });
 }
 
@@ -46,7 +71,8 @@ pub fn exists(path: &str) -> bool {
 }
 
 pub fn remove(path: &str) -> bool {
-    FS.with(|f| f.borrow_mut().1.remove(&norm(path)).is_some())
+    let p = norm(path);
+    !read_only(&p) && FS.with(|f| f.borrow_mut().1.remove(&p).is_some())
 }
 
 /// All (path, char length) pairs, sorted by path.
@@ -60,11 +86,12 @@ pub fn list() -> Vec<(String, usize)> {
     })
 }
 
+/// Reset scratch state; the read-only knowledge mount survives.
 pub fn clear() {
     FS.with(|f| {
         let mut f = f.borrow_mut();
         f.0 = 0;
-        f.1.clear();
+        f.1.retain(|k, _| read_only(k));
     });
 }
 
