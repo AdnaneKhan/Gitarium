@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 
-use super::{tools, MODEL};
+use super::tools;
 
 /// Compact once a turn's total context passes this: the 200k window minus
 /// headroom for max_tokens (16k) and a few more turns of growth.
@@ -78,7 +78,7 @@ fn first_text(history: &[Value]) -> Option<String> {
 /// Body of the summarization request: trimmed history plus the handoff
 /// instruction, merged into a trailing user turn when one exists. Same
 /// system/tools as a normal turn so the cached prefix is reused.
-pub fn summary_request(system: &str, history: &[Value]) -> String {
+pub fn summary_request(model: &str, system: &str, history: &[Value]) -> String {
     let kept = trim(history);
     let mut text = String::from(INSTRUCTION);
     if kept.len() < history.len() {
@@ -103,7 +103,7 @@ pub fn summary_request(system: &str, history: &[Value]) -> String {
         _ => msgs.push(json!({"role": "user", "content": text})),
     }
     json!({
-        "model": MODEL,
+        "model": model,
         "max_tokens": 8000,
         "thinking": {"type": "adaptive"},
         "cache_control": {"type": "ephemeral"},
@@ -155,7 +155,7 @@ mod tests {
             json!({"role": "user", "content":
                 [{"type": "tool_result", "tool_use_id": "t1", "content": "x"}]}),
         ];
-        let req: Value = serde_json::from_str(&summary_request("sys", &h)).unwrap();
+        let req: Value = serde_json::from_str(&summary_request("m", "sys", &h)).unwrap();
         assert_eq!(req["tool_choice"]["type"], "none");
         let msgs = req["messages"].as_array().unwrap();
         assert_eq!(msgs.len(), 3, "instruction must merge, not append");
@@ -175,7 +175,7 @@ mod tests {
             json!({"role": "assistant", "content": [{"type": "text", "text": "done"}]}),
             json!({"role": "user", "content": "next"}),
         ];
-        let req: Value = serde_json::from_str(&summary_request("sys", &h)).unwrap();
+        let req: Value = serde_json::from_str(&summary_request("m", "sys", &h)).unwrap();
         let msgs = req["messages"].as_array().unwrap();
         // Everything before the last plain user message was dropped: the
         // tool_result turn may not lead (its tool_use is gone).

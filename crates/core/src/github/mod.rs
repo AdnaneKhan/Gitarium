@@ -2,20 +2,26 @@
 //! unauthenticated requests work for public data at 60 req/hour.
 
 mod actions;
+mod checks;
 mod content;
 mod gitdb;
+mod issues;
+mod pulls;
 mod repos;
 mod search;
 #[cfg(test)]
 mod tests;
 mod types;
 
-pub use actions::{list_jobs, list_runs};
+pub use actions::{get_job_logs, list_jobs, list_runs};
+pub use checks::{list_check_runs, list_reviews, CheckRun, Review};
 pub use content::{get_blob, get_file, get_tree, list_branches, put_file};
 pub use gitdb::{
     create_blob, create_commit, create_ref, create_tree, get_commit, update_ref, GitUser,
     TreeChange,
 };
+pub use issues::{list_comments, list_issues, Comment, Issue, Label};
+pub use pulls::{approve_pull, get_pull, list_pulls, merge_pull, Pull};
 pub use repos::{current_user, get_repo, repos_first_page, repos_page, RepoPage, MAX_PAGES};
 pub use search::{search_code, search_code_global, CodeHit, CodeMatch, CodeSearch, SEARCH_PER_PAGE};
 pub use types::*;

@@ -61,6 +61,8 @@ impl RepoSort {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Code,
+    Issues,
+    Pulls,
     Actions,
 }
 
@@ -229,6 +231,9 @@ pub enum Overlay {
     /// New-branch modal: pick the base branch (index into `branches`) and the
     /// new branch name; Create makes the ref immediately.
     NewBranch { name: LineInput, base: usize },
+    /// Model picker: the provider's models, fetched on open; selecting one
+    /// sets the agent model (the id itself is never displayed in the toolbar).
+    ModelPick { models: Loadable<Vec<crate::agent::ModelInfo>>, sel: usize },
     /// Find-file palette over the already-fetched recursive tree.
     FileSearch { input: LineInput, sel: usize },
     /// GitHub code-search palette (token required; default branch only).
@@ -266,6 +271,10 @@ pub enum ConfirmAction {
     /// carries a file path to jump to once the repo is open (global code
     /// search), or None for a plain repo open.
     OpenRepo { repo: Repo, then_open: Option<String> },
+    /// Submit an approving review on the open PR.
+    ApprovePr(u64),
+    /// Merge the open PR with the given method ("merge"|"squash"|"rebase").
+    MergePr { number: u64, method: String },
 }
 
 /// Mouse hit-regions, rebuilt on every draw.
@@ -276,6 +285,29 @@ pub enum Click {
     Tab(Tab),
     BranchBtn,
     Run(usize),
+    /// A job header in the jobs pane → open that job's logs (index into the
+    /// loaded jobs list).
+    JobRow(usize),
+    /// "‹ BACK" in the job-log view → back to the jobs list.
+    JobLogBack,
+    /// "Download Log" chip → save the cached log as a text file (handled in
+    /// the view layer, which has DOM access).
+    DownloadLog,
+    /// Log-search controls: open the box, jump prev/next, close.
+    LogSearchOpen,
+    LogSearchPrev,
+    LogSearchNext,
+    LogSearchClose,
+    /// A row in the issues or pulls list (which one depends on the active
+    /// tab); opening it shows the issue/PR detail.
+    IssueRow(usize),
+    /// Detail-view actions on the open PR.
+    Approve,
+    Merge,
+    /// Cycle the merge method chip (merge → squash → rebase).
+    MergeMethodCycle,
+    /// "‹ BACK" in the detail view → back to the list.
+    DetailBack,
     /// Direct editor position: row + visual cell x (converted to a char
     /// column via x_to_col).
     EditorPos { row: usize, cell_x: usize },
@@ -290,6 +322,8 @@ pub enum Click {
     NewBranchBtn,
     /// The new-branch modal's base chip (cycles the base branch).
     CycleBranchBase,
+    /// "MODEL" chip in the agent toolbar → opens the model picker.
+    ModelPickBtn,
     AgentClear,
     AgentResetKey,
     /// A hyperlink in the agent transcript: index into the px view's
@@ -311,6 +345,8 @@ pub enum Scroll {
     Jobs,
     Overlay,
     Agent,
+    Issues,
+    Detail,
 }
 
 #[derive(Clone, Copy)]
@@ -324,6 +360,9 @@ pub struct Layout {
     pub runs_h: usize,
     pub jobs_h: usize,
     pub overlay_h: usize,
+    /// Visible rows in the issues/pulls list and the detail body (for paging).
+    pub issues_h: usize,
+    pub detail_h: usize,
 }
 
 impl Default for Layout {
@@ -337,6 +376,8 @@ impl Default for Layout {
             runs_h: 0,
             jobs_h: 0,
             overlay_h: 0,
+            issues_h: 0,
+            detail_h: 0,
         }
     }
 }
@@ -346,6 +387,14 @@ pub struct TreeRow {
     pub name: String,
     pub depth: usize,
     pub is_dir: bool,
+}
+
+/// In-log text search: the query, the line indices that match, and which one
+/// is the current jump target (`< >` / Enter step through `matches`).
+pub struct LogSearch {
+    pub query: LineInput,
+    pub matches: Vec<usize>,
+    pub idx: usize,
 }
 
 pub struct OpenFile {

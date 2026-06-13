@@ -29,7 +29,8 @@ impl App {
         };
         self.agent.push(AgentItem::Tool { label: "compact context".into(), done: None });
         self.agent.compacting = Some(self.agent.transcript.len() - 1);
-        let body = compact::summary_request(&self.agent_system(), &self.agent.history);
+        let body =
+            compact::summary_request(&self.agent_model, &self.agent_system(), &self.agent.history);
         let base = self.anthropic_url.clone();
         let gen = self.agent.gen;
         crate::spawn_msg(async move {

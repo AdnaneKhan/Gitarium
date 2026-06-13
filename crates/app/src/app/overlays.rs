@@ -20,6 +20,7 @@ impl App {
             Some(Overlay::NewBranch { .. }) => self.new_branch_key(key, mods),
             Some(Overlay::OpenRepo(_)) => self.open_repo_overlay_key(key, mods),
             Some(Overlay::BranchPick { .. }) => self.branch_pick_key(key),
+            Some(Overlay::ModelPick { .. }) => self.model_pick_key(key),
             Some(Overlay::Confirm { .. }) => self.confirm_key(key, mods),
             Some(Overlay::FileSearch { .. }) => self.file_search_key(key, mods),
             Some(Overlay::CodeSearch { .. }) => self.code_search_key(key, mods),
@@ -69,6 +70,46 @@ impl App {
             // The chip isn't a text input — swallow any other key on it.
             _ if on_target => true,
             k => form.focused().handle_key(&k, mods),
+        }
+    }
+
+    fn model_pick_key(&mut self, key: Key) -> bool {
+        match key {
+            Key::Esc => {
+                self.overlay = None;
+                true
+            }
+            Key::Up => {
+                if let Some(Overlay::ModelPick { sel, .. }) = &mut self.overlay {
+                    *sel = sel.saturating_sub(1);
+                }
+                true
+            }
+            Key::Down => {
+                let count = match &self.overlay {
+                    Some(Overlay::ModelPick { models: super::Loadable::Ready(m), .. }) => m.len(),
+                    _ => 0,
+                };
+                if let Some(Overlay::ModelPick { sel, .. }) = &mut self.overlay {
+                    if count > 0 {
+                        *sel = (*sel + 1).min(count - 1);
+                    }
+                }
+                true
+            }
+            Key::Enter => {
+                let pick = match &self.overlay {
+                    Some(Overlay::ModelPick { models: super::Loadable::Ready(m), sel }) => {
+                        m.get(*sel).map(|x| x.id.clone())
+                    }
+                    _ => None,
+                };
+                if let Some(id) = pick {
+                    self.select_model(id);
+                }
+                true
+            }
+            _ => false,
         }
     }
 
@@ -248,6 +289,8 @@ impl App {
                     ConfirmAction::OpenRepo { repo, then_open } => {
                         self.open_repo_then(repo, then_open)
                     }
+                    ConfirmAction::ApprovePr(number) => self.do_approve(number),
+                    ConfirmAction::MergePr { number, method } => self.do_merge(number, method),
                 }
                 true
             }

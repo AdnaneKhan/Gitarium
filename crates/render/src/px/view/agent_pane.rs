@@ -22,7 +22,8 @@ impl View {
         let cy = top + self.f(14.0);
         let mut right = w - self.f(16.0);
         right = self.chip(dl, atlas, "CLEAR", right, cy, CYAN, Click::AgentClear, wid(Z_CHIP, 40));
-        let _ = self.chip(dl, atlas, "KEY", right, cy, MAGENTA, Click::AgentResetKey, wid(Z_CHIP, 41));
+        right = self.chip(dl, atlas, "KEY", right, cy, MAGENTA, Click::AgentResetKey, wid(Z_CHIP, 41));
+        let _ = self.chip(dl, atlas, "MODEL", right, cy, GREEN, Click::ModelPickBtn, wid(Z_CHIP, 42));
         let mut mx = self.f(18.0);
         if let Some(u) = &app.anthropic_url {
             let host = u.trim_start_matches("https://").trim_start_matches("http://");

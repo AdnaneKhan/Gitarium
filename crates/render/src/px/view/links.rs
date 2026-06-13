@@ -113,7 +113,7 @@ fn md_link(chars: &[char], open: usize) -> Option<(&[char], String, usize)> {
 
 /// End index (exclusive) of a bare `http://` / `https://` URL anchored at `i`,
 /// with trailing sentence punctuation trimmed off. None when `i` isn't a URL.
-fn bare_url(chars: &[char], i: usize) -> Option<usize> {
+pub(super) fn bare_url(chars: &[char], i: usize) -> Option<usize> {
     let rest = &chars[i..];
     let scheme = if starts_with(rest, "https://") {
         8
@@ -147,7 +147,7 @@ fn starts_with(chars: &[char], pat: &str) -> bool {
     chars.len() >= pat.len() && chars.iter().zip(pat.chars()).all(|(&c, p)| c == p)
 }
 
-fn push_url(urls: &mut Vec<String>, url: &str) -> usize {
+pub(super) fn push_url(urls: &mut Vec<String>, url: &str) -> usize {
     if let Some(i) = urls.iter().position(|u| u == url) {
         return i;
     }
@@ -166,3 +166,26 @@ pub(super) fn open_url(url: &str) {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn open_url(_url: &str) {}
+
+/// Save `text` as a downloaded file via a transient object-URL anchor click.
+/// No-op off the web target.
+#[cfg(target_arch = "wasm32")]
+pub(super) fn download_text(filename: &str, text: &str) {
+    use wasm_bindgen::{JsCast, JsValue};
+    let Some(doc) = web_sys::window().and_then(|w| w.document()) else { return };
+    let parts = js_sys::Array::new();
+    parts.push(&JsValue::from_str(text));
+    let Ok(blob) = web_sys::Blob::new_with_str_sequence(&parts) else { return };
+    let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) else { return };
+    if let Ok(a) = doc.create_element("a") {
+        let _ = a.set_attribute("href", &url);
+        let _ = a.set_attribute("download", filename);
+        if let Some(el) = a.dyn_ref::<web_sys::HtmlElement>() {
+            el.click();
+        }
+    }
+    let _ = web_sys::Url::revoke_object_url(&url);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn download_text(_filename: &str, _text: &str) {}

@@ -15,10 +15,19 @@ impl View {
         match tab {
             Tab::Code => self.code_tab(app, dl, atlas, w, top, bottom),
             Tab::Actions => self.actions_tab(app, dl, atlas, w, top, bottom),
+            Tab::Issues | Tab::Pulls => {
+                if app.rv.as_ref().and_then(|rv| rv.detail.as_ref()).is_some() {
+                    self.issue_detail(app, dl, atlas, w, top, bottom);
+                } else {
+                    self.issues_tab(app, dl, atlas, w, top, bottom, matches!(tab, Tab::Pulls));
+                }
+            }
         }
     }
 
     fn code_tab(&mut self, app: &mut App, dl: &mut DrawList, atlas: &mut Atlas, w: f32, top: f32, bottom: f32) {
+        // New-file and edit affordances require write access (not anonymous).
+        let can_edit = app.can_edit_repo();
         let tree = RectF::new(self.f(16.0), top, self.f(300.0).min(w * 0.3), bottom - top);
         let content = RectF::new(tree.right() + self.f(12.0), top, w - tree.right() - self.f(28.0), bottom - top);
         self.panel(dl, tree);
@@ -29,7 +38,9 @@ impl View {
         let row_h = self.f(27.0);
         // A header strip holds the "+ FILE" add affordance; rows start below.
         let header_h = self.f(26.0);
-        self.chip(dl, atlas, "+ FILE", tree.right() - self.f(10.0), tree.y + header_h / 2.0 + self.f(3.0), GREEN, Click::NewFileBtn, wid(Z_CHIP, 7));
+        if can_edit {
+            self.chip(dl, atlas, "+ FILE", tree.right() - self.f(10.0), tree.y + header_h / 2.0 + self.f(3.0), GREEN, Click::NewFileBtn, wid(Z_CHIP, 7));
+        }
         let inner = RectF::new(tree.x + self.f(8.0), tree.y + header_h, tree.w - self.f(16.0), tree.h - header_h - self.f(8.0));
         app.layout.tree_h = (inner.h / row_h).max(1.0) as usize;
 
@@ -54,7 +65,8 @@ impl View {
             for line in [
                 "↑↓ NAVIGATE · ENTER OPEN · TAB SWITCH PANE",
                 "E EDIT · S STAGE · N NEW · D DELETE · C COMMIT",
-                "RIGHT-CLICK TREE FOR ACTIONS · B BRANCH · ? KEYMAP",
+                "T ISSUES · P PULLS · A ACTIONS · B BRANCH",
+                "RIGHT-CLICK TREE FOR ACTIONS · I AGENT · ? KEYMAP",
             ] {
                 dl.text(atlas, UI, self.f(12.5), x, y, line, FAINT, self.f(1.5));
                 y += self.f(22.0);
@@ -97,7 +109,6 @@ impl View {
         };
         let staged = rv.staged.len();
         let committing = rv.committing;
-        let can_edit = app.can_edit_repo();
         if committing {
             self.active = true;
         }

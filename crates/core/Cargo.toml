@@ -25,7 +25,9 @@ web-sys = { workspace = true, features = [
     "Request",
     "RequestInit",
     "Response",
+    "Storage",
     "WebSocket",
+    "Window",
 ] }
 
 [build-dependencies]

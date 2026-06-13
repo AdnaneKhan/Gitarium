@@ -171,11 +171,15 @@ pub struct JobsResp {
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Job {
+    #[serde(default)]
+    pub id: u64,
     pub name: String,
     #[serde(default)]
     pub status: String,
     #[serde(default)]
     pub conclusion: Option<String>,
+    #[serde(default)]
+    pub html_url: Option<String>,
     #[serde(default)]
     pub steps: Vec<Step>,
 }

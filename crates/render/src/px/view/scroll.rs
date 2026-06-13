@@ -39,6 +39,20 @@ impl View {
                     rv.jobs_scroll = rows;
                 }
             }
+            Scroll::Issues => {
+                if let Some(rv) = &mut app.rv {
+                    if matches!(rv.tab, Tab::Pulls) {
+                        rv.pulls_scroll = rows;
+                    } else {
+                        rv.issues_scroll = rows;
+                    }
+                }
+            }
+            Scroll::Detail => {
+                if let Some(d) = app.rv.as_mut().and_then(|rv| rv.detail.as_mut()) {
+                    d.scroll = rows;
+                }
+            }
             Scroll::Overlay => {
                 if let Some(Overlay::BranchPick { scroll, .. }) = &mut app.overlay {
                     *scroll = rows;

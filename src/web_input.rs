@@ -19,7 +19,13 @@ pub fn web_key(key: &str, ctrl: bool, alt: bool, shift: bool) -> bool {
             if h.app.overlay.is_some() {
                 return false;
             }
-            let text = if h.app.route == Route::Agent {
+            // The agent transcript, issue/PR detail, and job-log view expose
+            // their selection through the view; the code editor through the app.
+            let detail_open = h.app.rv.as_ref().and_then(|rv| rv.detail.as_ref()).is_some();
+            let log_open = h.app.rv.as_ref().and_then(|rv| rv.job_logs.as_ref()).is_some();
+            let text = if log_open {
+                h.view.job_log_text(&h.app)
+            } else if h.app.route == Route::Agent || detail_open {
                 h.view.agent_selection_text()
             } else {
                 h.app.editor_selection_text()

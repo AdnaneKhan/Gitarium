@@ -85,6 +85,15 @@ impl App {
         if self.rv.is_none() {
             return;
         }
+        if !self.can_edit_repo() {
+            let msg = if self.login.is_none() {
+                "sign in to add files"
+            } else {
+                "view-only: no write access to this repo"
+            };
+            self.toast = Some((msg.into(), true));
+            return;
+        }
         let mut input = LineInput::new(false);
         if !dir.is_empty() {
             input.insert(&format!("{}/", dir.trim_end_matches('/')));

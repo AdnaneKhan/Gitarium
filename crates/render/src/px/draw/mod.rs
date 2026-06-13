@@ -9,6 +9,8 @@ pub const MODE_GLYPH: f32 = 0.0;
 pub const MODE_SDF: f32 = 1.0;
 pub const MODE_SOLID: f32 = 2.0;
 pub const MODE_SCAN: f32 = 3.0;
+/// Color-emoji quad: sample the RGBA color atlas (straight color, not tinted).
+pub const MODE_EMOJI: f32 = 4.0;
 
 pub const FLOATS_PER_VERT: usize = 16; // pos2 uv2 color4 rect4 param4
 
@@ -98,7 +100,7 @@ impl DrawList {
             return;
         }
         let (mut u0, mut v0, mut u1, mut v1) = (uv[0], uv[1], uv[2], uv[3]);
-        if param[3] == MODE_GLYPH && (x1 - x0) > 0.0 && (y1 - y0) > 0.0 {
+        if (param[3] == MODE_GLYPH || param[3] == MODE_EMOJI) && (x1 - x0) > 0.0 && (y1 - y0) > 0.0 {
             let fu = (u1 - u0) / (x1 - x0);
             let fv = (v1 - v0) / (y1 - y0);
             u0 += (cx0 - x0) * fu;

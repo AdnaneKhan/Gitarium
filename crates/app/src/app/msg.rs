@@ -74,12 +74,63 @@ pub enum Msg {
         run_id: u64,
         result: Result<Vec<github::Job>, String>,
     },
+    /// Raw logs for a single job (drilled into from the jobs pane).
+    JobLogs {
+        repo: String,
+        job_id: u64,
+        result: Result<String, String>,
+    },
+    /// The 100 most-recently-updated open issues for the Issues tab.
+    IssuesLoaded {
+        repo: String,
+        result: Result<Vec<github::Issue>, String>,
+    },
+    /// The 100 most-recently-updated open PRs for the Pulls tab.
+    PullsLoaded {
+        repo: String,
+        result: Result<Vec<github::Pull>, String>,
+    },
+    /// Conversation comments for the open issue/PR detail.
+    Comments {
+        repo: String,
+        number: u64,
+        result: Result<Vec<github::Comment>, String>,
+    },
+    /// The open PR's computed merge state (mergeable / diff stats).
+    PullLoaded {
+        repo: String,
+        number: u64,
+        result: Result<github::Pull, String>,
+    },
+    /// Submitted reviews on the open PR.
+    Reviews {
+        repo: String,
+        number: u64,
+        result: Result<Vec<github::Review>, String>,
+    },
+    /// CI check runs for the open PR's head commit.
+    Checks {
+        repo: String,
+        number: u64,
+        result: Result<Vec<github::CheckRun>, String>,
+    },
+    /// Outcome of an approve (`approve: true`) or merge on the open PR.
+    PrActed {
+        repo: String,
+        number: u64,
+        approve: bool,
+        result: Result<String, String>,
+    },
     CodeSearchDone {
         gen: u64,
         /// 1-based page this result is for: page 1 replaces the list, later
         /// pages append to it.
         page: u32,
         result: Result<(Vec<github::CodeHit>, u64), String>,
+    },
+    /// The provider's model list for the picker overlay.
+    ModelsListed {
+        result: Result<Vec<crate::agent::ModelInfo>, String>,
     },
     /// One Messages API response in the agent loop.
     AgentResponse {
@@ -118,7 +169,18 @@ impl App {
             }
             Msg::Runs { repo, result } => self.on_runs(repo, result),
             Msg::Jobs { repo, run_id, result } => self.on_jobs(repo, run_id, result),
+            Msg::JobLogs { repo, job_id, result } => self.on_job_logs(repo, job_id, result),
+            Msg::IssuesLoaded { repo, result } => self.on_issues_loaded(repo, result),
+            Msg::PullsLoaded { repo, result } => self.on_pulls_loaded(repo, result),
+            Msg::Comments { repo, number, result } => self.on_comments(repo, number, result),
+            Msg::PullLoaded { repo, number, result } => self.on_pull_loaded(repo, number, result),
+            Msg::Reviews { repo, number, result } => self.on_reviews(repo, number, result),
+            Msg::Checks { repo, number, result } => self.on_checks(repo, number, result),
+            Msg::PrActed { repo, number, approve, result } => {
+                self.on_pr_acted(repo, number, approve, result)
+            }
             Msg::CodeSearchDone { gen, page, result } => self.on_code_search_done(gen, page, result),
+            Msg::ModelsListed { result } => self.on_models_listed(result),
             Msg::AgentResponse { gen, result } => self.on_agent_response_msg(gen, result),
             Msg::AgentToolsDone { gen, results } => self.on_agent_tools_done(gen, results),
         }

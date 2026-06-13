@@ -2,9 +2,15 @@
 // wasm embedded as base64. Output works from file:// or any static host.
 // Usage: bun build-html.ts [--test]   (--test adds a self-driving harness)
 
+import { gzipSync } from "node:zlib";
+
 const glue = await Bun.file(new URL("./pkg/rustvm.js", import.meta.url)).text();
 const wasm = await Bun.file(new URL("./pkg/rustvm_bg.wasm", import.meta.url)).arrayBuffer();
-const b64 = Buffer.from(wasm).toString("base64");
+// Embed the wasm gzip-compressed (~57% smaller than raw base64); the host
+// gunzips it in-page via DecompressionStream. Brotli would be ~20% smaller
+// still, but browsers expose no native JS brotli decoder — served paths use
+// brotli over the wire (serve.ts) instead, where the browser decodes it.
+const b64 = gzipSync(Buffer.from(wasm), { level: 9 }).toString("base64");
 
 // The glue's default export name (init), so host code can call it directly
 // when concatenated into the same module scope.
@@ -22,12 +28,13 @@ const host = `
 // paused in hidden tabs, so schedule an explicit frame on wake.
 globalThis.host_wake = () => setTimeout(() => web_frame(performance.now()), 0);
 
-const b64 = "${b64}";
-const bin = atob(b64);
-const bytes = new Uint8Array(bin.length);
-for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+// Embedded wasm is gzip-compressed base64; gunzip natively before instantiate.
+const gz = Uint8Array.from(atob("${b64}"), (c) => c.charCodeAt(0));
+const wasmBuf = await new Response(
+  new Response(gz).body.pipeThrough(new DecompressionStream("gzip")),
+).arrayBuffer();
 
-await ${initName}({ module_or_path: bytes.buffer });
+await ${initName}({ module_or_path: wasmBuf });
 
 const canvas = document.getElementById("screen");
 // Read fresh on every use — zoom/monitor changes alter it at runtime.
@@ -110,6 +117,10 @@ canvas.addEventListener("mousemove", (e) => {
   lastY = e.offsetY;
   web_mouse_move(e.offsetX * dpr(), e.offsetY * dpr());
   canvas.style.cursor = web_cursor_style();
+});
+canvas.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  web_context_menu(e.offsetX * dpr(), e.offsetY * dpr());
 });
 // On window so drags released outside the canvas still end.
 window.addEventListener("mouseup", (e) => {

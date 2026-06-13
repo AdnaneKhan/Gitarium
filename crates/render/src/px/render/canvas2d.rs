@@ -8,8 +8,8 @@
 use wasm_bindgen::{Clamped, JsCast};
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 
-use super::super::atlas::{Atlas, ATLAS_SIZE};
-use super::super::draw::{DrawList, FLOATS_PER_VERT, MODE_GLYPH, MODE_SDF, MODE_SOLID};
+use super::super::atlas::{Atlas, ATLAS_SIZE, COLOR_ATLAS};
+use super::super::draw::{DrawList, FLOATS_PER_VERT, MODE_EMOJI, MODE_GLYPH, MODE_SDF, MODE_SOLID};
 use super::super::theme;
 use super::glyphs::GlyphRun;
 
@@ -17,6 +17,8 @@ pub(super) struct State {
     pub(super) ctx: CanvasRenderingContext2d,
     pub(super) atlas_canvas: HtmlCanvasElement,
     atlas_ctx: CanvasRenderingContext2d,
+    color_canvas: HtmlCanvasElement,
+    color_ctx: CanvasRenderingContext2d,
     pub(super) scratch: HtmlCanvasElement,
     pub(super) scratch_ctx: CanvasRenderingContext2d,
 }
@@ -48,9 +50,11 @@ pub(super) fn init(canvas: &HtmlCanvasElement) -> Result<State, String> {
     let ctx = ctx2d(canvas)?;
     let atlas_canvas = offscreen(ATLAS_SIZE, ATLAS_SIZE)?;
     let atlas_ctx = ctx2d(&atlas_canvas)?;
+    let color_canvas = offscreen(COLOR_ATLAS, COLOR_ATLAS)?;
+    let color_ctx = ctx2d(&color_canvas)?;
     let scratch = offscreen(512, 64)?;
     let scratch_ctx = ctx2d(&scratch)?;
-    Ok(State { ctx, atlas_canvas, atlas_ctx, scratch, scratch_ctx })
+    Ok(State { ctx, atlas_canvas, atlas_ctx, color_canvas, color_ctx, scratch, scratch_ctx })
 }
 
 pub(super) fn css(c: [f32; 4]) -> String {
@@ -95,6 +99,10 @@ impl State {
         if atlas.dirty {
             self.upload_atlas(atlas);
             atlas.dirty = false;
+        }
+        if atlas.color_dirty {
+            super::glyphs::upload_color(&self.color_ctx, atlas);
+            atlas.color_dirty = false;
         }
         let ctx = &self.ctx;
         let bg = theme::BG0;
@@ -141,6 +149,8 @@ impl State {
                         run = Some(r);
                     }
                 }
+            } else if mode == MODE_EMOJI {
+                super::glyphs::blit_emoji(ctx, &self.color_canvas, q, x0, y0, x1, y1);
             } else if mode == MODE_SOLID {
                 ctx.set_fill_style_str(&css(color));
                 ctx.fill_rect(x0 as f64, y0 as f64, (x1 - x0) as f64, (y1 - y0) as f64);

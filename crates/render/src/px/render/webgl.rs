@@ -8,7 +8,7 @@ use wasm_bindgen::JsCast;
 use web_sys::WebGlRenderingContext as GL;
 use web_sys::{HtmlCanvasElement, WebGlBuffer, WebGlProgram, WebGlShader, WebGlTexture, WebGlUniformLocation};
 
-use super::super::atlas::{Atlas, ATLAS_SIZE};
+use super::super::atlas::{Atlas, ATLAS_SIZE, COLOR_ATLAS};
 use super::super::draw::{DrawList, FLOATS_PER_VERT};
 use super::super::theme;
 use super::shaders::{FRAG_SRC, VERT_SRC};
@@ -22,6 +22,7 @@ pub(super) struct State {
     _program: WebGlProgram,
     vbo: WebGlBuffer,
     tex: WebGlTexture,
+    emoji_tex: WebGlTexture,
     u_res: WebGlUniformLocation,
 }
 
@@ -58,22 +59,31 @@ pub(super) fn init(canvas: &HtmlCanvasElement) -> Result<State, String> {
         gl.enable_vertex_attrib_array(loc);
     }
 
-    let tex = gl.create_texture().ok_or("texture")?;
-    gl.active_texture(GL::TEXTURE0);
-    gl.bind_texture(GL::TEXTURE_2D, Some(&tex));
-    gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::LINEAR as i32);
-    gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::LINEAR as i32);
-    gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE as i32);
-    gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE as i32);
+    let mk_tex = |unit: u32| -> Result<WebGlTexture, String> {
+        let t = gl.create_texture().ok_or("texture")?;
+        gl.active_texture(unit);
+        gl.bind_texture(GL::TEXTURE_2D, Some(&t));
+        gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::LINEAR as i32);
+        gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::LINEAR as i32);
+        gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, GL::CLAMP_TO_EDGE as i32);
+        gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, GL::CLAMP_TO_EDGE as i32);
+        Ok(t)
+    };
+    // Unit 0: coverage glyph atlas. Unit 1: RGBA color-emoji atlas.
+    let emoji_tex = mk_tex(GL::TEXTURE1)?;
+    let tex = mk_tex(GL::TEXTURE0)?;
 
     let u_res = gl.get_uniform_location(&program, "u_res").ok_or("u_res")?;
     if let Some(u_tex) = gl.get_uniform_location(&program, "u_tex") {
         gl.uniform1i(Some(&u_tex), 0);
     }
+    if let Some(u_emoji) = gl.get_uniform_location(&program, "u_emoji") {
+        gl.uniform1i(Some(&u_emoji), 1);
+    }
     gl.enable(GL::BLEND);
     gl.blend_func(GL::SRC_ALPHA, GL::ONE_MINUS_SRC_ALPHA);
 
-    Ok(State { gl, _program: program, vbo, tex, u_res })
+    Ok(State { gl, _program: program, vbo, tex, emoji_tex, u_res })
 }
 
 impl State {
@@ -103,6 +113,26 @@ impl State {
                     Some(&atlas.pixels),
                 );
             atlas.dirty = false;
+        }
+
+        if atlas.color_dirty {
+            gl.active_texture(GL::TEXTURE1);
+            gl.bind_texture(GL::TEXTURE_2D, Some(&self.emoji_tex));
+            gl.pixel_storei(GL::UNPACK_ALIGNMENT, 1);
+            let _ = gl
+                .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+                    GL::TEXTURE_2D,
+                    0,
+                    GL::RGBA as i32,
+                    COLOR_ATLAS as i32,
+                    COLOR_ATLAS as i32,
+                    0,
+                    GL::RGBA,
+                    GL::UNSIGNED_BYTE,
+                    Some(&atlas.color_pixels),
+                );
+            gl.active_texture(GL::TEXTURE0);
+            atlas.color_dirty = false;
         }
 
         gl.uniform2f(Some(&self.u_res), w, h);

@@ -110,13 +110,31 @@ impl App {
                     rv.tree_sel = i;
                 }
             }
-            Click::Tab(t) => {
+            Click::Tab(t) => self.switch_tab(t),
+            Click::IssueRow(i) => {
                 let Some(rv) = &mut self.rv else { return };
-                rv.tab = t;
-                if t == Tab::Actions && matches!(rv.runs, super::Loadable::Idle) {
-                    self.load_runs();
+                let is_pulls = matches!(rv.tab, Tab::Pulls);
+                let sel = if is_pulls { rv.pulls_sel } else { rv.issues_sel };
+                if sel == i {
+                    if is_pulls {
+                        self.open_pull_detail(i);
+                    } else {
+                        self.open_issue_detail(i);
+                    }
+                } else if is_pulls {
+                    rv.pulls_sel = i;
+                } else {
+                    rv.issues_sel = i;
                 }
             }
+            Click::Approve => self.approve_pr(),
+            Click::Merge => self.merge_pr(),
+            Click::MergeMethodCycle => {
+                if let Some(d) = self.rv.as_mut().and_then(|rv| rv.detail.as_mut()) {
+                    d.merge_method = d.merge_method.next();
+                }
+            }
+            Click::DetailBack => self.close_detail(),
             Click::BranchBtn => {
                 if self.overlay.is_none() {
                     self.code_key(Key::Char('b'), Mods::NONE);
@@ -130,6 +148,25 @@ impl App {
                     rv.runs_sel = i;
                 }
             }
+            Click::JobRow(i) => {
+                let id = self
+                    .rv
+                    .as_ref()
+                    .and_then(|rv| rv.jobs.as_ref())
+                    .and_then(|(_, l)| l.ready())
+                    .and_then(|jobs| jobs.get(i))
+                    .map(|j| j.id);
+                if let Some(id) = id {
+                    self.open_job_logs(id);
+                }
+            }
+            Click::JobLogBack => self.close_job_logs(),
+            Click::LogSearchOpen => self.open_log_search(),
+            Click::LogSearchClose => self.close_log_search(),
+            Click::LogSearchPrev => self.log_match_step(-1),
+            Click::LogSearchNext => self.log_match_step(1),
+            // Handled in the view layer (needs DOM); kept here for exhaustiveness.
+            Click::DownloadLog => {}
             Click::EditorPos { row, cell_x } => {
                 let Some(rv) = &mut self.rv else { return };
                 rv.focus = RepoFocus::Content;
@@ -144,6 +181,7 @@ impl App {
                     Some(Overlay::BranchPick { sel, .. }) => Some(sel),
                     Some(Overlay::FileSearch { sel, .. }) => Some(sel),
                     Some(Overlay::CodeSearch { sel, .. }) => Some(sel),
+                    Some(Overlay::ModelPick { sel, .. }) => Some(sel),
                     _ => None,
                 };
                 if let Some(sel) = sel {
@@ -180,6 +218,7 @@ impl App {
             // Handled in the px view layer (opens a browser tab) before it
             // ever reaches here; this arm only keeps the match exhaustive.
             Click::OpenUrl(_) => {}
+            Click::ModelPickBtn => self.open_model_pick(),
             Click::AgentClear => self.agent_clear(),
             Click::AgentResetKey => {
                 if self.agent.busy {

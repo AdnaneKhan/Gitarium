@@ -32,6 +32,7 @@ impl View {
             Overlay::Commit(_) => "COMMIT",
             Overlay::NewFile(_) => "NEW FILE",
             Overlay::NewBranch { .. } => "NEW BRANCH",
+            Overlay::ModelPick { .. } => "SELECT MODEL",
             Overlay::OpenRepo(_) => "OPEN REPOSITORY",
             Overlay::BranchPick { .. } => "SWITCH BRANCH",
             Overlay::FileSearch { .. } => "FIND FILE",
@@ -47,6 +48,7 @@ impl View {
             Overlay::Commit(_) => self.ov_commit(app, dl, atlas, w, h, pw, lift, &title),
             Overlay::NewFile(_) => self.ov_new_file(app, dl, atlas, w, h, pw, lift, &title),
             Overlay::NewBranch { .. } => self.ov_new_branch(app, dl, atlas, w, h, pw, lift, &title),
+            Overlay::ModelPick { .. } => self.ov_model_pick(app, dl, atlas, w, h, pw, lift, &title),
             Overlay::OpenRepo(_) => self.ov_open_repo(app, dl, atlas, w, h, pw, lift, &title),
             Overlay::BranchPick { .. } => self.ov_branch_pick(app, dl, atlas, w, h, pw, lift, &title),
             Overlay::FileSearch { .. } => self.ov_file_search(app, dl, atlas, w, h, lift, &title),
@@ -130,7 +132,7 @@ impl View {
 
     #[allow(clippy::too_many_arguments)]
     fn ov_help(&mut self, dl: &mut DrawList, atlas: &mut Atlas, w: f32, h: f32, pw: f32, lift: f32, title: &str) {
-        let lines: [(&str, &str); 19] = [
+        let lines: [(&str, &str); 23] = [
             ("GLOBAL", ""),
             ("?", "this help · esc closes"),
             ("REPOSITORIES", ""),
@@ -139,13 +141,17 @@ impl View {
             ("G", "global code search across GitHub (needs token)"),
             ("CODE", ""),
             ("↑↓ ←→ ENTER", "navigate tree · expand/collapse · open"),
-            ("/", "find file across the whole tree"),
-            ("G", "code search via GitHub API (needs token)"),
-            ("TAB · B · A", "switch pane · branch · actions"),
+            ("/ G", "find file in tree · code search (needs token)"),
+            ("TAB B A T P", "pane · branch · actions · issues · pulls"),
             ("E S N D U C", "edit·stage·new·stage-del·unstage·commit staged"),
             ("EDITOR", ""),
             ("CTRL+S", "stage + commit · ctrl+z undo · ctrl+y redo"),
             ("SHIFT+ARROWS", "select · esc back to view mode"),
+            ("ISSUES · PULLS", ""),
+            ("↑↓ ENTER R", "browse list · open detail · refresh"),
+            ("DETAIL", ""),
+            ("↑↓ ESC", "scroll body · back to list"),
+            ("A M", "approve PR · merge PR (with method)"),
             ("ACTIONS", ""),
             ("ENTER R", "load jobs · refresh"),
             ("AGENT", ""),

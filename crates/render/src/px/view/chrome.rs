@@ -36,7 +36,7 @@ impl View {
             x = chip.right();
 
             // Tabs.
-            let tabs = [(Tab::Code, "CODE"), (Tab::Actions, "ACTIONS")];
+            let tabs = [(Tab::Code, "CODE"), (Tab::Issues, "ISSUES"), (Tab::Pulls, "PULLS"), (Tab::Actions, "ACTIONS")];
             let sel_tab = app.rv.as_ref().map(|rv| rv.tab).unwrap_or(Tab::Code);
             let mut tx = x + self.f(30.0);
             for (i, (tab, label)) in tabs.iter().enumerate() {
@@ -130,36 +130,7 @@ impl View {
         let y = h - bh;
         dl.solid(RectF::new(0.0, y, w, bh), BG1);
         dl.solid(RectF::new(0.0, y, w, 1.0), BORDER_BRIGHT);
-        let hints = match app.route {
-            Route::Auth => "[ENTER] CONTINUE",
-            Route::Repos => {
-                if app.filter_active {
-                    "[ENTER] APPLY · [ESC] CLEAR"
-                } else if app.repo_source != RepoSource::Mine {
-                    "[/] FILTER · [O] OPEN · [G] SEARCH · [S] SORT · [F] FORKS · [X] ARCHIVED · [ESC] MY REPOS"
-                } else {
-                    "[/] FILTER · [O] OPEN · [G] CODE SEARCH · [S] SORT · [F/X] FORKS/ARCHIVED · [I] AGENT · [?] HELP"
-                }
-            }
-            Route::Repo => {
-                if app.in_editor() {
-                    "[CTRL+S] COMMIT · [CTRL+Z] UNDO · [ESC] VIEW MODE"
-                } else if app.rv.as_ref().map(|rv| rv.tab == Tab::Actions).unwrap_or(false) {
-                    "[ENTER] JOBS · [R] REFRESH · [A/ESC] CODE"
-                } else {
-                    "[ENTER] OPEN · [/] FIND · [G] CODE SEARCH · [E] EDIT · [B] BRANCH · [A] ACTIONS · [I] AGENT · [ESC] BACK"
-                }
-            }
-            Route::Agent => {
-                if app.anthropic_key.is_none() {
-                    "[ENTER] SAVE · [TAB] SWITCH FIELD · [ESC] BACK"
-                } else if app.agent.busy {
-                    "[ESC] CANCEL"
-                } else {
-                    "[ENTER] SEND · [ESC] BACK"
-                }
-            }
-        };
+        let hints = super::hints::route_hints(app);
         let baseline = y + self.f(19.0);
         dl.text(atlas, UI, self.f(12.0), self.f(16.0), baseline, hints, with_a(DIM, 0.9), self.f(1.0));
         let rate = crate::fetch::RATE_LIMIT

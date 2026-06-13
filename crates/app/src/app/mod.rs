@@ -17,6 +17,10 @@ mod commit;
 mod file_msgs;
 mod files;
 mod input;
+mod issue_actions;
+mod issue_detail;
+mod issue_msgs;
+mod issues;
 mod keys;
 mod menu;
 mod msg;
@@ -31,6 +35,7 @@ mod tree;
 
 pub use actions::run_icon;
 pub use chat::{AgentChat, AgentItem};
+pub use issue_detail::{Detail, MergeMethod};
 pub use msg::Msg;
 pub use repo::RepoView;
 pub use search::search_tree;
@@ -79,6 +84,9 @@ pub struct App {
 
     pub anthropic_key: Option<String>,
     pub anthropic_url: Option<String>,
+    /// Selected model id (persisted); chosen via the model picker, never
+    /// shown in the UI. Defaults to `agent::MODEL`.
+    pub agent_model: String,
     pub agent: AgentChat,
 
     /// Author/committer/date overrides for staged commits; remembered across
@@ -119,6 +127,8 @@ impl App {
             code_search_gen: 0,
             anthropic_key: crate::agent::load_key(),
             anthropic_url: crate::agent::load_url(),
+            agent_model: crate::agent::load_model()
+                .unwrap_or_else(|| crate::agent::MODEL.to_string()),
             agent: AgentChat::new(),
             commit_identity: CommitIdentity::default(),
             layout: Layout::default(),

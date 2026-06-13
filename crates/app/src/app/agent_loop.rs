@@ -21,7 +21,8 @@ impl App {
         if self.maybe_compact() {
             return;
         }
-        let body = crate::agent::build_request(&self.agent_system(), &self.agent.history);
+        let body =
+            crate::agent::build_request(&self.agent_model, &self.agent_system(), &self.agent.history);
         let base = self.anthropic_url.clone();
         let gen = self.agent.gen;
         crate::spawn_msg(async move {

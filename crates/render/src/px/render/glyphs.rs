@@ -3,7 +3,40 @@
 //! canvas, tinted in one source-in fill, and composited back — four canvas
 //! ops per text run instead of per glyph.
 
+use wasm_bindgen::Clamped;
+use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
+
+use super::super::atlas::{Atlas, COLOR_ATLAS};
 use super::canvas2d::{css, State};
+
+/// Upload the RGBA color-emoji atlas onto its backing canvas (no tinting —
+/// emoji keep their own colors).
+pub(super) fn upload_color(ctx: &CanvasRenderingContext2d, atlas: &Atlas) {
+    if let Ok(img) = ImageData::new_with_u8_clamped_array_and_sh(
+        Clamped(&atlas.color_pixels),
+        COLOR_ATLAS,
+        COLOR_ATLAS,
+    ) {
+        let _ = ctx.put_image_data(&img, 0.0, 0.0);
+    }
+}
+
+/// Straight-blit one emoji quad (`q`) from the color atlas canvas to the page.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn blit_emoji(ctx: &CanvasRenderingContext2d, color: &HtmlCanvasElement, q: &[f32], x0: f32, y0: f32, x1: f32, y1: f32) {
+    let s = COLOR_ATLAS as f32;
+    let _ = ctx.draw_image_with_html_canvas_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
+        color,
+        (q[2] * s) as f64,
+        (q[3] * s) as f64,
+        ((q[34] - q[2]) * s) as f64,
+        ((q[35] - q[3]) * s) as f64,
+        x0 as f64,
+        y0 as f64,
+        (x1 - x0) as f64,
+        (y1 - y0) as f64,
+    );
+}
 
 pub(super) struct GlyphRun {
     pub(super) color: [f32; 4],

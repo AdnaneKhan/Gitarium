@@ -79,6 +79,44 @@ impl App {
         self.route = if self.rv.is_some() { Route::Repo } else { Route::Repos };
     }
 
+    /// Open the model picker and fetch the provider's model list.
+    pub(super) fn open_model_pick(&mut self) {
+        let Some(key) = self.anthropic_key.clone() else {
+            self.toast = Some(("set an API key first".into(), true));
+            return;
+        };
+        self.overlay = Some(super::Overlay::ModelPick { models: super::Loadable::Loading, sel: 0 });
+        let base = self.anthropic_url.clone();
+        crate::spawn_msg(async move {
+            let result = crate::agent::list_models(&key, base.as_deref()).await;
+            super::Msg::ModelsListed { result }
+        });
+    }
+
+    pub(super) fn on_models_listed(
+        &mut self,
+        result: Result<Vec<crate::agent::ModelInfo>, String>,
+    ) {
+        let cur = self.agent_model.clone();
+        if let Some(super::Overlay::ModelPick { models, sel }) = &mut self.overlay {
+            match result {
+                Ok(list) => {
+                    *sel = list.iter().position(|m| m.id == cur).unwrap_or(0);
+                    *models = super::Loadable::Ready(list);
+                }
+                Err(e) => *models = super::Loadable::Failed(e),
+            }
+        }
+    }
+
+    /// Persist + apply the chosen model, then close the picker.
+    pub(super) fn select_model(&mut self, id: String) {
+        crate::agent::save_model(&id);
+        self.agent_model = id;
+        self.overlay = None;
+        self.toast = Some(("model updated".into(), false));
+    }
+
     pub(super) fn agent_send(&mut self) {
         let text = self.agent.input.text.trim().to_string();
         if text.is_empty() || self.agent.busy {

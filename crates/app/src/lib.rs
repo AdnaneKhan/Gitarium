@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 use wasm_bindgen::prelude::*;
 
 use rustvm_agent::agent;
-use rustvm_core::{github, proxy};
+use rustvm_core::{github, proxy, store};
 use rustvm_ui::{highlight, ui};
 
 pub mod app;

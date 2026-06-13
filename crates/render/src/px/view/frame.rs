@@ -18,8 +18,19 @@ impl View {
         self.wheels.clear();
         self.editor_geom = None;
         self.agent_geom = None;
-        if app.route != Route::Agent {
+        self.actions_split_hit = None;
+        self.log_geom = None;
+        // The transcript and the issue/PR detail are the two mouse-selectable
+        // text surfaces; clear any selection when neither is showing.
+        let text_surface = app.route == Route::Agent
+            || app.rv.as_ref().and_then(|rv| rv.detail.as_ref()).is_some();
+        if !text_surface {
             self.agent_sel = None;
+        }
+        // Drop a stale job-log selection once the log view is gone.
+        let log_open = app.rv.as_ref().and_then(|rv| rv.job_logs.as_ref()).is_some();
+        if !log_open {
+            self.log_sel = None;
         }
         self.hot = if app.overlay.is_some() { (-1e6, -1e6) } else { self.mouse };
 
@@ -104,9 +115,12 @@ fn busy(app: &App) -> bool {
         if matches!(rv.branches, Loadable::Loading)
             || matches!(rv.tree, Loadable::Loading)
             || matches!(rv.runs, Loadable::Loading)
+            || matches!(rv.issues, Loadable::Loading)
+            || matches!(rv.pulls, Loadable::Loading)
             || rv.file_loading.is_some()
             || matches!(rv.jobs, Some((_, Loadable::Loading)))
             || rv.committing
+            || rv.detail.as_ref().map(|d| matches!(d.comments, Loadable::Loading) || d.action_busy).unwrap_or(false)
         {
             return true;
         }

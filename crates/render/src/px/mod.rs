@@ -5,6 +5,7 @@
 pub mod anim;
 pub mod atlas;
 pub mod draw;
+pub mod emoji;
 pub mod render;
 pub mod theme;
 pub mod view;

@@ -6,8 +6,8 @@ use std::collections::HashMap;
 
 use crate::app::run_icon;
 use crate::app::{
-    AgentItem, App, Click, CommitForm, CommitTarget, Loadable, Overlay, RepoFocus, RepoSource,
-    Route, Scroll, SearchScope, Staged, Tab,
+    AgentItem, App, Click, CommitForm, CommitTarget, Detail, Loadable, Overlay, RepoFocus,
+    RepoSource, Route, Scroll, SearchScope, Staged, Tab,
 };
 use crate::highlight::{self, LineState};
 use crate::ui::grid::Rect as CellRect;
@@ -22,12 +22,18 @@ mod actions_pane;
 mod agent_draw;
 mod agent_pane;
 mod agent_text;
+mod actions_log;
 mod chrome;
 mod context_menu;
 mod editor_pane;
 mod frame;
+mod hints;
 mod input;
+mod issue_detail_body;
+mod issue_detail_pane;
+mod issues_pane;
 mod links;
+mod md;
 mod overlay_commit;
 mod overlay_grep;
 mod overlay_pick;
@@ -39,8 +45,7 @@ mod scroll;
 #[cfg(test)]
 mod tests;
 mod text;
-mod tree_pane;
-mod widgets;
+mod tree_pane; mod widgets;
 
 #[derive(Clone, Copy)]
 struct EditorGeom {
@@ -58,6 +63,23 @@ enum Drag {
     Agent,
     /// Extending the editor selection.
     Editor,
+    /// Resizing the Actions runs/jobs split.
+    ActionsSplit,
+    /// Extending the job-log text selection.
+    JobLog,
+    /// Dragging the job-log scrollbar thumb.
+    LogScroll,
+}
+
+/// Job-log view geometry from the last frame, for hit-testing selection, the
+/// scrollbar drag, and search jumps.
+#[derive(Clone, Copy)]
+struct LogGeom {
+    area: RectF,
+    lh: f32,
+    adv: f32,
+    scroll: usize,
+    lines: usize,
 }
 
 pub struct View {
@@ -106,6 +128,15 @@ pub struct View {
     /// Distinct hyperlink targets for the transcript drawn this frame;
     /// `Click::OpenUrl` carries an index into this table.
     link_urls: Vec<String>,
+    /// Actions runs/jobs split ratio (left pane fraction), drag-adjustable.
+    actions_split: f32,
+    /// The draggable splitter handle rect, and the (x0, total_w) span used to
+    /// convert a drag x into a ratio — from the last Actions frame.
+    actions_split_hit: Option<(RectF, f32, f32)>,
+    /// Job-log selection (anchor, head) as (line, col), unnormalized.
+    log_sel: Option<((usize, usize), (usize, usize))>,
+    /// Job-log layout from the last frame (selection / scrollbar / search).
+    log_geom: Option<LogGeom>,
     drag: Drag,
     pub cursor_pointer: bool,
     pub cursor_text: bool,
@@ -121,6 +152,7 @@ fn skey(s: Scroll) -> u8 {
         Scroll::Jobs => 4,
         Scroll::Overlay => 5,
         Scroll::Agent => 6,
+        Scroll::Issues => 7, Scroll::Detail => 8,
     }
 }
 
@@ -139,6 +171,7 @@ const Z_RUN: u8 = 6;
 const Z_FILE: u8 = 7;
 const Z_GREP: u8 = 8;
 const Z_MENU: u8 = 9;
+const Z_ISSUE: u8 = 10; const Z_DETAIL: u8 = 11;
 
 impl View {
     pub fn new(scale: f32) -> Self {
@@ -173,6 +206,10 @@ impl View {
             agent_xs: Vec::new(),
             agent_sel: None,
             link_urls: Vec::new(),
+            actions_split: 0.46,
+            actions_split_hit: None,
+            log_sel: None,
+            log_geom: None,
             drag: Drag::None,
             cursor_pointer: false,
             cursor_text: false,

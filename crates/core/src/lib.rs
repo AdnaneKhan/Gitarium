@@ -9,4 +9,5 @@ pub mod github;
 pub mod knowledge;
 pub mod proxy;
 pub mod sh;
+pub mod store;
 pub mod vfs;

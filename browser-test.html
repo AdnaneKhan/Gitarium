@@ -10,7 +10,7 @@
   <body>
     <canvas id="screen"></canvas>
     <script type="module">
-      import init, { web_start, web_frame, web_key, web_paste, web_wheel, web_debug_text } from "./pkg/rustvm.js";
+      import init, { web_start, web_frame, web_key, web_paste, web_wheel, web_debug_text, web_mouse_down, web_mouse_move, web_mouse_up } from "./pkg/rustvm.js";
       globalThis.host_wake = () => {};
       await init();
       const canvas = document.getElementById("screen");
@@ -32,7 +32,13 @@
       // ?token=… authenticates the session (the test runner reads it from
       // .env.test) so suite runs aren't throttled by anonymous rate limits.
       const token = earlyParams.get("token") || undefined;
-      web_start("screen", 15 * dpr, token);
+      // The API-proxy test serves this page with window.__RUSTVM_PROXY__ set;
+      // route GitHub calls over a WebSocket to it. Absent → calls go direct.
+      const pp = globalThis.__RUSTVM_PROXY__;
+      const proxyUrl = pp
+        ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host + pp
+        : undefined;
+      web_start("screen", 15 * dpr, token, proxyUrl);
       let running = true;
       const loop = (t) => { web_frame(t); if (running) requestAnimationFrame(loop); };
       requestAnimationFrame(loop);
@@ -80,6 +86,22 @@
         await sleep(50);
         web_frame(performance.now());
         document.title = "FROZEN";
+      }
+
+      // Emoji screenshot (?mode=emoji): anonymous → repos → type emoji into
+      // the filter bar so a screenshot shows whether they render in color.
+      if (params.get("mode") === "emoji") {
+        await sleep(100);
+        enter(); // empty token → anonymous repos screen
+        await until("ANONYMOUS MODE");
+        web_key("/", false, false, false);
+        await sleep(100);
+        web_paste("emoji: 🚀 🎉 ✅ ❤ 🔥 👍 🐛 📦 🇺🇸 👍🏽 😀");
+        await sleep(500);
+        running = false;
+        await sleep(50);
+        web_frame(performance.now());
+        document.title = "EMOJI";
       }
 
       // Full regression suite (?mode=suite): results go to the console,
@@ -226,8 +248,7 @@
         enter();
         await sleep(300);
         check("agent chat ready", "DESCRIBE A GITHUB TASK");
-        check("agent model chip", "CLAUDE-OPUS-4-8");
-        check("agent endpoint chip", "· proxy.example.com");
+        check("agent endpoint chip", "proxy.example.com");
         esc();
         await until(home);
         check("back from agent", home);
@@ -251,26 +272,36 @@
         await until("Hello World!");
         check("file content", "Hello World!");
 
-        // Edit, commit dialog, undo.
+        // Edit / commit / undo — only when the token can push. begin_edit
+        // shows a "view-only" toast and stays in view mode otherwise, so
+        // detect that and skip (don't type into the viewer, where 'i' would
+        // open the agent). octocat/Hello-World isn't writable by the test
+        // token, so this is skipped there; it runs against a writable repo.
         key("e");
-        type("hi ");
-        await sleep(100);
-        check("typed text", "hi Hello World!");
-        ctrl("s");
         await sleep(200);
-        check("commit overlay", "COMMIT → MASTER");
-        type("test message");
-        await sleep(100);
-        check("commit msg typed", "test message");
-        esc();
-        ctrl("z");
-        ctrl("z");
-        ctrl("z");
-        await sleep(100);
-        check("undo restored", "hi Hello World!", true);
+        const writable = !web_debug_text().includes("view-only");
+        if (writable) {
+          type("hi ");
+          await sleep(100);
+          check("typed text", "hi Hello World!");
+          ctrl("s");
+          await sleep(200);
+          // Ctrl+S stages the file and opens the multi-change commit form.
+          check("commit overlay", "CHANGE(S) → MASTER");
+          type("test message");
+          await sleep(100);
+          check("commit msg typed", "test message");
+          esc();
+          ctrl("z");
+          ctrl("z");
+          ctrl("z");
+          await sleep(100);
+          check("undo restored", "hi Hello World!", true);
+          esc(); // exit edit mode → content focus
+        }
 
-        // Branch picker.
-        esc(); // exit edit mode
+        // Branch picker (the `b` key works from any focus). Land on tree
+        // focus first so the repo-leave below takes a single esc.
         esc(); // content → tree focus
         key("b");
         await sleep(300);
@@ -320,6 +351,55 @@
         enter();
         await until("Set up job");
         check("jobs/steps visible", "Set up job");
+
+        // Issues tab: lazy-load the 100 most-recently-updated open issues,
+        // then open one to see its body + comments. ~10s poll for a row so an
+        // empty list skips the detail step instead of hanging the full `until`.
+        const quickHas = async (needle) => {
+          for (let i = 0; i < 100; i++) {
+            if (web_debug_text().includes(needle)) return true;
+            await sleep(100);
+          }
+          return false;
+        };
+        key("t");
+        await until("ISSUES · RECENTLY UPDATED");
+        check("issues tab", "ISSUES · RECENTLY UPDATED");
+        if (await quickHas("#")) {
+          enter();
+          await until("DESCRIPTION");
+          check("issue detail", "DESCRIPTION");
+          // Mouse-select text in the body and copy it. A non-empty selection
+          // makes Ctrl+C toast (copied / copy failed); an empty one is silent,
+          // so the toast's presence proves selection produced text.
+          const D = dpr;
+          web_mouse_down(40 * D, 146 * D);
+          web_mouse_move(680 * D, 184 * D);
+          web_mouse_up(680 * D, 184 * D);
+          await sleep(80);
+          ctrl("c");
+          await sleep(150);
+          const dbg = web_debug_text();
+          const copied = dbg.includes("copied") || dbg.includes("copy failed");
+          results.push(copied);
+          console.log(`${copied ? "PASS" : "FAIL"}: select + copy from detail`);
+          esc(); // back to list
+          await sleep(150);
+        }
+
+        // Pulls tab + a PR's detail with merge requirements (mergeability,
+        // checks, reviews) — fetched lazily when the detail opens.
+        key("p");
+        await until("PULL REQUESTS · RECENTLY UPDATED");
+        check("pulls tab", "PULL REQUESTS · RECENTLY UPDATED");
+        if (await quickHas("#")) {
+          enter();
+          await until("DESCRIPTION");
+          check("pr detail", "DESCRIPTION");
+          await until("MERGEABILITY");
+          check("pr merge requirements", "MERGEABILITY");
+          esc();
+        }
 
         const pass = results.filter(Boolean).length;
         console.log(`SUITE: ${pass}/${results.length} passed`);

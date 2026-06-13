@@ -3,7 +3,6 @@
 //! `rustvm-app` (it draws that state) and re-imports the agent/foundation/ui
 //! modules it displays so `px`'s `crate::app` / `crate::ui` / … paths resolve
 //! unchanged.
-use rustvm_agent::agent;
 use rustvm_app::app;
 use rustvm_core::{fetch, github};
 use rustvm_ui::{highlight, ui};

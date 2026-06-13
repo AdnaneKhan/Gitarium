@@ -5,6 +5,9 @@
 use std::collections::HashMap;
 
 pub const ATLAS_SIZE: u32 = 2048;
+/// Side of the RGBA color-emoji atlas (separate from the LUMINANCE glyph
+/// atlas). Emoji are few and cached per (size, cluster), so this is small.
+pub const COLOR_ATLAS: u32 = 1024;
 
 pub const UI: u8 = 0;
 pub const UI_BOLD: u8 = 1;
@@ -33,9 +36,20 @@ pub struct Atlas {
     cur_y: u32,
     row_h: u32,
     pub dirty: bool,
+    // Color-emoji atlas (RGBA): browser-rasterized emoji clusters, packed
+    // separately and uploaded to a second texture (see px::emoji).
+    pub color_pixels: Vec<u8>,
+    pub color_dirty: bool,
+    pub(super) color_cache: HashMap<(u16, String), Option<Glyph>>,
+    pub(super) color_cur_x: u32,
+    pub(super) color_cur_y: u32,
+    pub(super) color_row_h: u32,
+    /// Offscreen 2D context used to rasterize emoji via the OS emoji font;
+    /// lazily created on the web target (None on native / before first use).
+    pub(super) raster_ctx: Option<web_sys::CanvasRenderingContext2d>,
 }
 
-fn size_key(px: f32) -> u16 {
+pub(super) fn size_key(px: f32) -> u16 {
     (px * 2.0).round() as u16
 }
 
@@ -55,6 +69,13 @@ impl Atlas {
             cur_y: 1,
             row_h: 0,
             dirty: true,
+            color_pixels: vec![0; (COLOR_ATLAS * COLOR_ATLAS * 4) as usize],
+            color_dirty: false,
+            color_cache: HashMap::new(),
+            color_cur_x: 1,
+            color_cur_y: 1,
+            color_row_h: 0,
+            raster_ctx: None,
         })
     }
 
@@ -67,6 +88,11 @@ impl Atlas {
     }
 
     pub fn advance(&self, font: u8, px: f32, ch: char) -> f32 {
+        // Emoji advance by a fixed cell so every measurement path agrees with
+        // the cluster draw; ordinary text uses the font metrics.
+        if let Some(a) = super::emoji::emoji_advance(px, ch) {
+            return a;
+        }
         self.fonts[font as usize].metrics(ch, px).advance_width
     }
 
@@ -89,9 +115,11 @@ impl Atlas {
                 pen += self.kern(font, px, p, ch);
             }
             xs.push(pen);
-            let adv = match self.glyph(font, px, ch) {
-                Some(g) => g.advance,
-                None => self.advance(font, px, ch),
+            // Emoji use the fixed cell (matching `text`); other chars use the
+            // rasterized glyph's advance.
+            let adv = match super::emoji::emoji_advance(px, ch) {
+                Some(a) => a,
+                None => self.glyph(font, px, ch).map_or_else(|| self.advance(font, px, ch), |g| g.advance),
             };
             pen += adv + tracking;
             prev = Some(ch);

@@ -10,9 +10,17 @@ use super::{App, ConfirmAction, Loadable, Overlay, RepoFocus, Route, SearchScope
 
 impl App {
     pub(super) fn repo_key(&mut self, key: Key, mods: Mods) -> bool {
-        let Some(rv) = &mut self.rv else { return false };
-        match rv.tab {
+        let (tab, has_detail) = {
+            let Some(rv) = self.rv.as_ref() else { return false };
+            (rv.tab, rv.detail.is_some())
+        };
+        // An open issue/PR detail owns the keys until dismissed.
+        if has_detail && matches!(tab, Tab::Issues | Tab::Pulls) {
+            return self.detail_key(key, mods);
+        }
+        match tab {
             Tab::Code => self.code_key(key, mods),
+            Tab::Issues | Tab::Pulls => self.issues_key(key, mods),
             Tab::Actions => self.actions_key(key, mods),
         }
     }
@@ -94,12 +102,9 @@ impl App {
                     self.overlay = Some(Overlay::BranchPick { sel, scroll: sel.saturating_sub(3) });
                 }
             }
-            Key::Char('a') if plain(mods) => {
-                rv.tab = Tab::Actions;
-                if matches!(rv.runs, Loadable::Idle) {
-                    self.load_runs();
-                }
-            }
+            Key::Char('a') if plain(mods) => self.switch_tab(Tab::Actions),
+            Key::Char('t') if plain(mods) => self.switch_tab(Tab::Issues),
+            Key::Char('p') if plain(mods) => self.switch_tab(Tab::Pulls),
             Key::Char('e') if plain(mods) => self.begin_edit(),
             Key::Char('s') if plain(mods) => self.stage_file_action(),
             Key::Char('n') if plain(mods) => self.begin_new_file(),

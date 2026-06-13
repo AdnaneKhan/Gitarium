@@ -3,8 +3,9 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use crate::github::{self, Branch, Job, Repo, Run, TreeEntry};
+use crate::github::{self, Branch, Issue, Job, Pull, Repo, Run, TreeEntry};
 
+use super::issue_detail::Detail;
 use super::{App, Loadable, Msg, RepoFocus, Route, Staged, Tab, TreeRow};
 
 pub struct RepoView {
@@ -26,6 +27,20 @@ pub struct RepoView {
     pub runs_scroll: usize,
     pub jobs: Option<(u64, Loadable<Vec<Job>>)>,
     pub jobs_scroll: usize,
+    /// Drilled-into job logs: (job id, fetched text). Some replaces the jobs
+    /// list with a scrollable log view; Esc / back returns to the list.
+    pub job_logs: Option<(u64, Loadable<String>)>,
+    /// Active in-log search (None when the search box is closed).
+    pub log_search: Option<super::LogSearch>,
+    pub issues: Loadable<Vec<Issue>>,
+    pub issues_sel: usize,
+    pub issues_scroll: usize,
+    pub pulls: Loadable<Vec<Pull>>,
+    pub pulls_sel: usize,
+    pub pulls_scroll: usize,
+    /// The open issue/PR detail (body + comments + PR merge state). None
+    /// while showing a list; Esc closes it back to the list.
+    pub detail: Option<Detail>,
     /// File path to open once branches arrive (a global code-search hit
     /// opened this repo). Lives with the RepoView so a superseding open
     /// can't apply it to the wrong repo; consumed in `on_branches`.
@@ -60,6 +75,15 @@ impl RepoView {
             runs_scroll: 0,
             jobs: None,
             jobs_scroll: 0,
+            job_logs: None,
+            log_search: None,
+            issues: Loadable::Idle,
+            issues_sel: 0,
+            issues_scroll: 0,
+            pulls: Loadable::Idle,
+            pulls_sel: 0,
+            pulls_scroll: 0,
+            detail: None,
             pending_open_path: None,
             staged: BTreeMap::new(),
             committing: false,
@@ -124,6 +148,15 @@ impl App {
 
     /// Open the new-branch modal, basing it on the currently-active branch.
     pub(super) fn open_new_branch_modal(&mut self) {
+        if !self.can_edit_repo() {
+            let msg = if self.login.is_none() {
+                "sign in to create a branch"
+            } else {
+                "view-only: no write access to this repo"
+            };
+            self.toast = Some((msg.into(), true));
+            return;
+        }
         let Some(rv) = self.rv.as_ref() else { return };
         let base = rv
             .branches

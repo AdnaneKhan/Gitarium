@@ -21,6 +21,9 @@ jaq-core = "3.1.0"
 jaq-std = "3.0.1"
 jaq-json = "2.0.1"
 shlex = "2.0.1"
+# The shell's grep/find regex engine. regex-lite is leaner than reusing jaq's
+# regex-bites for our minimal is_match needs (measured ~3-5 KB smaller); if
+# richer regex is ever needed, regex-bites is already linked via jaq-std.
 regex-lite = "0.1.9"
 # Inflate-only at runtime (knowledge bundle); deflate happens in build.rs.
 miniz_oxide = "0.8"

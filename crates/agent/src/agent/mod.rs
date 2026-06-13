@@ -28,6 +28,7 @@ const API_VERSION: &str = "2023-06-01";
 
 const STORAGE_KEY: &str = "rustvm_anthropic_key";
 const STORAGE_URL: &str = "rustvm_anthropic_url";
+const STORAGE_MODEL: &str = "rustvm_model";
 
 // ---------------------------------------------------------------------------
 // API key persistence (same localStorage scheme as the GitHub PAT)
@@ -70,6 +71,22 @@ pub fn save_url(url: &str) {
 pub fn clear_url() {
     if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
         let _ = storage.remove_item(STORAGE_URL);
+    }
+}
+
+/// The selected model id (persisted across sessions); `None` falls back to
+/// `MODEL`. The id is never shown in the UI — only chosen via the picker.
+pub fn load_model() -> Option<String> {
+    let storage = web_sys::window()?.local_storage().ok()??;
+    storage
+        .get_item(STORAGE_MODEL)
+        .ok()?
+        .filter(|m| !m.trim().is_empty())
+}
+
+pub fn save_model(model: &str) {
+    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+        let _ = storage.set_item(STORAGE_MODEL, model);
     }
 }
 
@@ -144,9 +161,9 @@ pub fn system_prompt(
     s
 }
 
-pub fn build_request(system: &str, history: &[Value]) -> String {
+pub fn build_request(model: &str, system: &str, history: &[Value]) -> String {
     json!({
-        "model": MODEL,
+        "model": model,
         "max_tokens": 16000,
         "thinking": {"type": "adaptive"},
         // Auto-cache the deepest prefix: in a tool loop every turn replays
@@ -178,6 +195,81 @@ pub async fn complete(api_key: &str, base: Option<&str>, body: String) -> Result
         return Err(format!("HTTP {}: {}", resp.status, msg));
     }
     Ok(v)
+}
+
+// ---------------------------------------------------------------------------
+// Model discovery — list the provider's models so the user can pick one
+// instead of hardcoding a per-provider mapping.
+// ---------------------------------------------------------------------------
+
+/// One selectable model. `display` falls back to the id when the provider
+/// doesn't give a human name (OpenAI-style `/models` only returns ids).
+#[derive(Clone)]
+pub struct ModelInfo {
+    pub id: String,
+    pub display: String,
+}
+
+/// Candidate endpoint roots to probe for a model list. Strips a trailing
+/// `/v1/messages`, and — for an Anthropic-compatibility base like DeepSeek's
+/// `…/anthropic` (which proxies /v1/messages but has no model list) — also
+/// offers the provider root, where the OpenAI-style `/models` lives.
+fn model_roots(base: Option<&str>) -> Vec<String> {
+    let b = base
+        .unwrap_or(DEFAULT_BASE)
+        .trim_end_matches('/')
+        .trim_end_matches("/v1/messages")
+        .trim_end_matches('/');
+    let mut roots = vec![b.to_string()];
+    if let Some(parent) = b.strip_suffix("/anthropic").map(|p| p.trim_end_matches('/')) {
+        if !parent.is_empty() && parent != b {
+            roots.push(parent.to_string());
+        }
+    }
+    roots
+}
+
+/// List the provider's models. For each candidate root tries the Anthropic
+/// shape (`/v1/models`, `data:[{id, display_name}]`) then the OpenAI-compatible
+/// shape (`/models`, `data:[{id}]`) — covering Anthropic, DeepSeek (incl. its
+/// `…/anthropic` base), and the like with no client-side model table. Sends
+/// both auth header styles so either provider family accepts it.
+pub async fn list_models(api_key: &str, base: Option<&str>) -> Result<Vec<ModelInfo>, String> {
+    let headers: Vec<(&str, String)> = vec![
+        ("x-api-key", api_key.to_string()),
+        ("authorization", format!("Bearer {}", api_key)),
+        ("anthropic-version", API_VERSION.to_string()),
+        ("anthropic-dangerous-direct-browser-access", "true".to_string()),
+    ];
+    let mut last_err = "model listing not supported by this endpoint".to_string();
+    for root in model_roots(base) {
+        for path in ["/v1/models", "/models"] {
+            let url = format!("{}{}", root, path);
+            match fetch::request("GET", &url, &headers, None).await {
+                Ok(resp) if (200..300).contains(&resp.status) => {
+                    let models = parse_models(&resp.body);
+                    if !models.is_empty() {
+                        return Ok(models);
+                    }
+                }
+                Ok(resp) => last_err = format!("HTTP {}", resp.status),
+                Err(e) => last_err = e,
+            }
+        }
+    }
+    Err(last_err)
+}
+
+fn parse_models(body: &str) -> Vec<ModelInfo> {
+    let Ok(v) = serde_json::from_str::<Value>(body) else { return Vec::new() };
+    let Some(arr) = v["data"].as_array() else { return Vec::new() };
+    arr.iter()
+        .filter_map(|m| {
+            let id = m["id"].as_str()?.to_string();
+            let display = m["display_name"].as_str().unwrap_or(&id).to_string();
+            Some(ModelInfo { id, display })
+        })
+        .collect()
 }
 
 /// Wipe the agent's virtual filesystem (CLEAR chip / new session).

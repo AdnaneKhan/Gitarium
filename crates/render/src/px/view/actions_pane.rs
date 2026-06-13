@@ -4,10 +4,19 @@ use super::*;
 
 impl View {
     pub(super) fn actions_tab(&mut self, app: &mut App, dl: &mut DrawList, atlas: &mut Atlas, w: f32, top: f32, bottom: f32) {
-        let left = RectF::new(self.f(16.0), top, (w - self.f(44.0)) * 0.46, bottom - top);
+        let span = w - self.f(44.0);
+        let ratio = self.actions_split.clamp(0.15, 0.85);
+        let left = RectF::new(self.f(16.0), top, span * ratio, bottom - top);
         let right = RectF::new(left.right() + self.f(12.0), top, w - left.right() - self.f(28.0), bottom - top);
         self.panel(dl, left);
         self.panel(dl, right);
+        // Draggable splitter in the gap between the two panes.
+        let gap_cx = (left.right() + right.x) / 2.0;
+        let handle = RectF::new(gap_cx - self.f(2.0), top + (bottom - top) / 2.0 - self.f(14.0), self.f(4.0), self.f(28.0));
+        let hit = RectF::new(left.right(), top, right.x - left.right(), bottom - top);
+        let hv = self.hover_amt(wid(Z_RUN, 9000), hit.contains(self.hot.0, self.hot.1));
+        dl.rrect(handle, self.f(2.0), with_a(CYAN, 0.25 + 0.4 * hv), 1.0);
+        self.actions_split_hit = Some((hit, left.x, span));
         dl.text(atlas, UI, self.f(12.0), left.x + self.f(14.0), top + self.f(24.0), "WORKFLOW RUNS", DIM, self.f(2.5));
         dl.text(atlas, UI, self.f(12.0), right.x + self.f(14.0), top + self.f(24.0), "JOBS", DIM, self.f(2.5));
 
@@ -97,6 +106,11 @@ impl View {
         let jlist = RectF::new(right.x + self.f(8.0), top + self.f(36.0), right.w - self.f(16.0), right.h - self.f(46.0));
         let jrow = self.f(26.0);
         app.layout.jobs_h = (jlist.h / jrow).max(1.0) as usize;
+        // Drilled into a job → the log view replaces the jobs/steps list.
+        if app.rv.as_ref().unwrap().job_logs.is_some() {
+            self.job_log_view(app, dl, atlas, right, jlist);
+            return;
+        }
         let jstate = app.rv.as_ref().unwrap().jobs.as_ref().map(|(_, l)| match l {
             Loadable::Loading | Loadable::Idle => 0,
             Loadable::Failed(_) => 1,
@@ -120,13 +134,14 @@ impl View {
                 dl.push_clip(jlist);
                 let rv = app.rv.as_ref().unwrap();
                 if let Some((_, Loadable::Ready(jobs))) = &rv.jobs {
-                    let mut lines: Vec<(f32, char, Color, String, bool)> = Vec::new();
-                    for job in jobs {
+                    // (indent, icon, color, name, Some(job index) for headers).
+                    let mut lines: Vec<(f32, char, Color, String, Option<usize>)> = Vec::new();
+                    for (ji, job) in jobs.iter().enumerate() {
                         let (icon, rgb) = run_icon(&job.status, job.conclusion.as_deref());
-                        lines.push((0.0, icon, crate::px::theme::c(rgb, 1.0), job.name.clone(), true));
+                        lines.push((0.0, icon, crate::px::theme::c(rgb, 1.0), job.name.clone(), Some(ji)));
                         for step in &job.steps {
                             let (si, srgb) = run_icon(&step.status, step.conclusion.as_deref());
-                            lines.push((self.f(18.0), si, crate::px::theme::c(srgb, 1.0), step.name.clone(), false));
+                            lines.push((self.f(18.0), si, crate::px::theme::c(srgb, 1.0), step.name.clone(), None));
                         }
                     }
                     for (vis, li) in (scroll_rows..lines.len()).enumerate() {
@@ -134,12 +149,22 @@ impl View {
                         if y > jlist.bottom() {
                             break;
                         }
-                        let (indent, icon, ic, name, bold) = &lines[li];
+                        let (indent, icon, ic, name, job_idx) = &lines[li];
                         let baseline = y + self.f(17.0);
+                        // Job headers are clickable → open that job's logs.
+                        if let Some(ji) = job_idx {
+                            let rr = RectF::new(jlist.x, y - self.f(2.0), jlist.w, jrow);
+                            let hv = self.hover_amt(wid(Z_RUN, 1000 + *ji), rr.contains(self.hot.0, self.hot.1));
+                            if hv > 0.005 {
+                                dl.rrect(rr, self.f(3.0), with_a(CYAN, 0.06 * hv), 1.0);
+                            }
+                            self.clicks.push((rr, Click::JobRow(*ji)));
+                        }
+                        let header = job_idx.is_some();
                         dl.text(atlas, MONO, self.f(12.0), jlist.x + self.f(4.0) + indent, baseline, &icon.to_string(), *ic, 0.0);
-                        let font = if *bold { UI_BOLD } else { UI };
+                        let font = if header { UI_BOLD } else { UI };
                         let fitted = dl.fit(atlas, font, self.f(13.0), name, jlist.w - indent - self.f(30.0));
-                        dl.text(atlas, font, self.f(13.0), jlist.x + self.f(22.0) + indent, baseline, &fitted, if *bold { TEXT } else { with_a(TEXT, 0.75) }, 0.0);
+                        dl.text(atlas, font, self.f(13.0), jlist.x + self.f(22.0) + indent, baseline, &fitted, if header { TEXT } else { with_a(TEXT, 0.75) }, 0.0);
                     }
                     self.wheels.push((right, Scroll::Jobs, jrow, (lines.len() as f32 * jrow - jlist.h).max(0.0)));
                 }

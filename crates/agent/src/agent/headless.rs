@@ -9,7 +9,7 @@
 use serde_json::{json, Value};
 
 use crate::agent::{build_request, compact, complete, exec, parse_tool_calls, system_prompt,
-    tool_result_block};
+    tool_result_block, MODEL};
 use crate::github;
 
 /// Sentinel lines the agent prints to end the run (see `goal_message`).
@@ -108,7 +108,7 @@ async fn compact_once(
     api_key: &str,
     base: Option<&str>,
 ) -> Result<Vec<Value>, String> {
-    let body = compact::summary_request(system, history);
+    let body = compact::summary_request(MODEL, system, history);
     match complete(api_key, base, body).await {
         Ok(resp) => {
             let summary = extract_text(&resp);
@@ -178,7 +178,7 @@ pub async fn run(
         }
         emit(&json!({"type": "turn", "n": turn}));
 
-        let resp = match complete(api_key, base, build_request(&system, &history)).await {
+        let resp = match complete(api_key, base, build_request(MODEL, &system, &history)).await {
             Ok(r) => r,
             Err(e) if compact::is_overflow(&e) => {
                 emit(&json!({"type": "compact"}));

@@ -37,6 +37,7 @@ varying vec4 v_rect;
 varying vec4 v_param;
 varying vec2 v_pos;
 uniform sampler2D u_tex;
+uniform sampler2D u_emoji;
 
 float sdBox(vec2 p, vec2 b, float r) {
     vec2 q = abs(p) - b + r;

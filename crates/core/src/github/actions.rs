@@ -26,3 +26,22 @@ pub async fn list_jobs(token: &Option<String>, full_name: &str, run_id: u64) -> 
     let r: JobsResp = parse(s, b)?;
     Ok(r.jobs)
 }
+
+/// Raw plain-text logs for one job. The endpoint 302-redirects to a signed
+/// blob URL; `fetch` follows it and returns the text. Requires auth, and the
+/// blob host may lack CORS in a direct browser — callers surface the error
+/// (with an "open on GitHub" fallback) when that happens.
+pub async fn get_job_logs(token: &Option<String>, full_name: &str, job_id: u64) -> Result<String, String> {
+    let (s, b) = api(
+        "GET",
+        &format!("/repos/{}/actions/jobs/{}/logs", enc_path(full_name), job_id),
+        token,
+        None,
+    )
+    .await?;
+    if !(200..300).contains(&s) {
+        let msg: String = b.chars().take(160).collect();
+        return Err(format!("HTTP {}: {}", s, msg));
+    }
+    Ok(b)
+}
