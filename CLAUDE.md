@@ -12,5 +12,5 @@ may use parent privates), siblings export `pub(super)`.
 
 - `cargo check --target wasm32-unknown-unknown` — primary target
 - `cargo test` — native unit tests (app, sh, github, px)
-- `wasm-pack build --target web && bun test-browser.ts` — headless-Chrome
+- `wasm-pack build --target web && bun tests/test-browser.ts` — headless-Chrome
   suite against the live GitHub API

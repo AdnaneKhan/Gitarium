@@ -1,6 +1,6 @@
 // Headless browser regression suite: serves the project, drives
 // browser-test.html in Chrome, and reports the PASS/FAIL lines the page
-// logs to the console. Run with `bun test-browser.ts`.
+// logs to the console. Run with `bun tests/test-browser.ts`.
 //
 // Three passes: the full live-API suite on the default (WebGL2) context,
 // then API-free boot smokes with WebGL2 hidden (?gl=1 → WebGL1 fallback)
@@ -9,7 +9,7 @@
 // A GITHUB_TOKEN in .env.test authenticates the suite pass so it isn't
 // throttled by the anonymous 60 req/hour rate limit.
 
-import { makeProxy } from "./proxy-server";
+import { makeProxy } from "../scripts/proxy-server";
 
 const PORT = 8123;
 const CHROME =
@@ -20,7 +20,7 @@ const CHROME =
 // comes from the gitignored .env.test. Env wins so CI never reads the file.
 async function resolveToken(): Promise<string | undefined> {
   if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
-  const f = Bun.file(import.meta.dir + "/.env.test");
+  const f = Bun.file(import.meta.dir + "/../.env.test");
   if (!(await f.exists())) return undefined;
   for (const line of (await f.text()).split("\n")) {
     const m = line.match(/^\s*(?:export\s+)?GITHUB_TOKEN\s*=\s*"?([^"\s#]+)/);
@@ -34,7 +34,10 @@ const server = Bun.serve({
   async fetch(req) {
     let path = new URL(req.url).pathname;
     if (path === "/") path = "/index.html";
-    const file = Bun.file(import.meta.dir + path);
+    // The harness page sits next to this script (tests/); app assets (index,
+    // pkg/) live at the repo root one level up.
+    const base = path === "/browser-test.html" ? import.meta.dir : import.meta.dir + "/..";
+    const file = Bun.file(base + path);
     return (await file.exists())
       ? new Response(file)
       : new Response("Not found", { status: 404 });

@@ -1,4 +1,4 @@
-// Static file server for the browser demo: run with `bun serve.ts`.
+// Static file server for the browser demo: run with `bun scripts/serve.ts`.
 //
 // Negotiates Content-Encoding for compressible assets — brotli (preferred,
 // the smallest) or gzip — so the ~2.7 MB wasm ships as ~0.86 MB (br) or
@@ -52,7 +52,10 @@ const server = Bun.serve({
         : new Response("expected a websocket upgrade", { status: 426 });
     }
     if (path === "/") path = "/index.html";
-    const entry = await load(import.meta.dir + path);
+    // App assets sit at the repo root (this script lives in scripts/); the
+    // test harness page lives in tests/.
+    const base = import.meta.dir + (path === "/browser-test.html" ? "/../tests" : "/..");
+    const entry = await load(base + path);
     if (!entry) return new Response("Not found", { status: 404 });
 
     const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();

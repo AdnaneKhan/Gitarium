@@ -52,7 +52,7 @@ jobs:
 
       # Inlines glue + base64 wasm into a single self-contained dist/gitarium.html.
       - name: Build single-file dist.html
-        run: bun build-html.ts
+        run: bun scripts/build-html.ts
 
       # compression-level 0 = stored, uncompressed ("zip-less") entries: the
       # base64 HTML and the wasm barely shrink, so skipping deflate is faster.
@@ -121,10 +121,10 @@ jobs:
       - name: Boot smokes (no API)
         env:
           CHROME: google-chrome
-        run: bun test-browser.ts --smoke
+        run: bun tests/test-browser.ts --smoke
 
       - name: Browser suite (live API)
         if: env.GITHUB_TOKEN != ''
         env:
           CHROME: google-chrome
-        run: bun test-browser.ts
+        run: bun tests/test-browser.ts

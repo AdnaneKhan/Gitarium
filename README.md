@@ -12,7 +12,7 @@ Rust does everything — layout, widgets, text editing, syntax highlighting, a
 from-scratch Markdown renderer, animation timing, GitHub API calls (via
 `globalThis.fetch`).
 
-> **New to the codebase?** [`ARCHITECTURE.md`](ARCHITECTURE.md) is the map —
+> **New to the codebase?** [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the map —
 > how the crates fit together, the runtime loop, each subsystem, and the
 > cross-cutting invariants to respect when editing.
 
@@ -79,7 +79,7 @@ cargo test --workspace                        # host-side checks
 ## Run
 
 ```sh
-bun serve.ts   # then open http://localhost:8080
+bun scripts/serve.ts   # then open http://localhost:8080
 ```
 
 `serve.ts` negotiates `Content-Encoding` — brotli (≈0.86 MB) or gzip
@@ -94,8 +94,8 @@ CORS is a non-issue: `api.github.com` allows cross-origin calls.
 ### API proxy (optional)
 
 ```sh
-bun serve.ts --api-proxy                      # browser ⇄ server over a WebSocket
-GITHUB_TOKEN=ghp_… bun serve.ts --api-proxy   # …with a server-held token
+bun scripts/serve.ts --api-proxy                      # browser ⇄ server over a WebSocket
+GITHUB_TOKEN=ghp_… bun scripts/serve.ts --api-proxy   # …with a server-held token
 ```
 
 With `--api-proxy` the browser stops calling `api.github.com` directly: every
@@ -121,7 +121,7 @@ foundation, no renderer, ~1.2 MB vs ~2.7 MB for the web bundle):
 ```sh
 wasm-pack build crates/headless --target web   # once
 GITHUB_TOKEN=ghp_…  ANTHROPIC_API_KEY=sk-ant-… \
-  bun agent-headless.ts "Triage open issues on owner/repo and label the bugs"
+  bun scripts/agent-headless.ts "Triage open issues on owner/repo and label the bugs"
 ```
 
 It loops autonomously until the model prints a `GOAL_ACHIEVED` /
@@ -134,8 +134,8 @@ Messages API endpoint.
 ## Single-file build
 
 ```sh
-bun build-html.ts              # → dist/gitarium.html (~1.6 MB; wasm embedded gzip'd, gunzipped in-page)
-bun build-html.ts --obfuscate  # …with the wasm run through the obfuscator first
+bun scripts/build-html.ts              # → dist/gitarium.html (~1.6 MB; wasm embedded gzip'd, gunzipped in-page)
+bun scripts/build-html.ts --obfuscate  # …with the wasm run through the obfuscator first
 ```
 
 One self-contained HTML file — glue inlined, wasm + fonts embedded as
@@ -149,7 +149,7 @@ canonical `walrus` IR). Passes: **data-section encryption** with an injected
 `start` decryptor (so `strings` no longer reveals the API URLs / knowledge
 bundle / prompts), custom-section stripping, and opt-in code passes —
 direct→`call_indirect` **call-graph aliasing** and **literal encoding**.
-`bun build-html.ts --obfuscate` runs it over the wasm right before embedding
+`bun scripts/build-html.ts --obfuscate` runs it over the wasm right before embedding
 (the last step, so nothing re-optimizes it away). It only raises the
 reverse-engineering bar — it is **not** security; a wasm bundle is fully
 recoverable. See [`obfuscator/README.md`](obfuscator/README.md).
@@ -157,11 +157,11 @@ recoverable. See [`obfuscator/README.md`](obfuscator/README.md).
 ## Tests
 
 ```sh
-bun test-browser.ts      # headless-Chrome suite against the live GitHub API
-cargo test --workspace   # host-side checks across all crates
+bun tests/test-browser.ts   # headless-Chrome suite against the live GitHub API
+cargo test --workspace      # host-side checks across all crates
 ```
 
-The suite drives `browser-test.html?mode=suite` and covers auth, org browsing,
+The suite drives `tests/browser-test.html?mode=suite` and covers auth, org browsing,
 the user-account fallback, repo/tree/file flows, editing, the commit dialog,
 undo, the branch picker, Actions runs/jobs, and the Issues/Pulls lists and
 detail (body + comments, PR merge requirements, text-selection + copy, in-page
@@ -186,7 +186,7 @@ the crates:
 | `crates/app/src/app/download.rs`    | Folder/repo → in-wasm `.tar.gz` archive                  |
 | `crates/core/src/fetch.rs`          | `globalThis.fetch` binding                               |
 | `src/lib.rs`, `src/web_input.rs`    | Root web cdylib: `Host` + `web_*` exports                |
-| `agent-headless.ts`                 | Headless-agent Bun entrypoint (loads `crates/headless`)  |
-| `index.html` / `serve.ts`           | Browser host (canvas + event glue) / static server       |
-| `build-html.ts` / `test-browser.ts` | Single-file bundler / headless-Chrome suite runner       |
-| `obfuscator/`                       | Standalone wasm obfuscator (`build-html.ts --obfuscate`) |
+| `scripts/agent-headless.ts`                 | Headless-agent Bun entrypoint (loads `crates/headless`)  |
+| `index.html` / `scripts/serve.ts`           | Browser host (canvas + event glue) / static server       |
+| `scripts/build-html.ts` / `tests/test-browser.ts` | Single-file bundler / headless-Chrome suite runner |
+| `obfuscator/`                               | Standalone wasm obfuscator (`scripts/build-html.ts --obfuscate`) |

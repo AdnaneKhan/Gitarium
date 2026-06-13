@@ -1,6 +1,6 @@
 // Builds a self-contained single-file HTML app: wasm-bindgen glue inlined,
 // wasm embedded as base64. Output works from file:// or any static host.
-// Usage: bun build-html.ts [--test] [--obfuscate]
+// Usage: bun scripts/build-html.ts [--test] [--obfuscate]
 //   --test       adds a self-driving harness
 //   --obfuscate  runs the obfuscator/ tool over the wasm first (data-section
 //                encryption + section stripping + call aliasing + constant
@@ -15,14 +15,14 @@ const rel = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 // Pick the wasm to embed: the pristine build, or an obfuscated copy in a temp
 // file (the glue is untouched — export/import names are preserved by design).
-let wasmPath = rel("./pkg/gitarium_bg.wasm");
+let wasmPath = rel("../pkg/gitarium_bg.wasm");
 if (process.argv.includes("--obfuscate")) {
   const obfOut = join(tmpdir(), "gitarium_bg.obf.wasm");
   console.log("obfuscating wasm (encrypt + strip + alias-calls + obf-consts)…");
   const r = Bun.spawnSync(
     [
       "cargo", "run", "--release", "--quiet",
-      "--manifest-path", rel("./obfuscator/Cargo.toml"), "--",
+      "--manifest-path", rel("../obfuscator/Cargo.toml"), "--",
       "--alias-calls", "--obf-consts", wasmPath, obfOut,
     ],
     { stdout: "inherit", stderr: "inherit" },
@@ -31,7 +31,7 @@ if (process.argv.includes("--obfuscate")) {
   wasmPath = obfOut;
 }
 
-const glue = await Bun.file(rel("./pkg/gitarium.js")).text();
+const glue = await Bun.file(rel("../pkg/gitarium.js")).text();
 const wasm = await Bun.file(wasmPath).arrayBuffer();
 // Embed the wasm gzip-compressed (~57% smaller than raw base64); the host
 // gunzips it in-page via DecompressionStream. Brotli would be ~20% smaller
@@ -213,5 +213,5 @@ ${test ? drive : ""}
 `;
 
 const out = test ? "dist/gitarium-test.html" : "dist/gitarium.html";
-await Bun.write(new URL(out, import.meta.url), html);
+await Bun.write(new URL("../" + out, import.meta.url), html);
 console.log(`${out}: ${(html.length / 1024).toFixed(0)} KB`);

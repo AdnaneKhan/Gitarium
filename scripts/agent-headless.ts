@@ -11,7 +11,7 @@
 //
 // Usage:
 //   GITHUB_TOKEN=ghp_…  ANTHROPIC_API_KEY=sk-ant-… \
-//     bun agent-headless.ts "<goal prompt>"
+//     bun scripts/agent-headless.ts "<goal prompt>"
 //
 // Environment:
 //   ANTHROPIC_API_KEY   required — the Claude key that drives the agent.
@@ -22,11 +22,11 @@
 //
 // Exit code: 0 when the goal is achieved, 1 otherwise (blocked / turn cap).
 
-import init, { agent_run_headless } from "./crates/headless/pkg/gitarium_headless.js";
+import init, { agent_run_headless } from "../crates/headless/pkg/gitarium_headless.js";
 
 const goal = process.argv.slice(2).join(" ").trim();
 if (!goal) {
-  console.error('usage: bun agent-headless.ts "<goal prompt>"');
+  console.error('usage: bun scripts/agent-headless.ts "<goal prompt>"');
   process.exit(2);
 }
 
@@ -44,7 +44,7 @@ const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim() || undefined;
 const maxTurns = Math.max(0, Number(process.env.AGENT_MAX_TURNS ?? 60) | 0);
 
 const wasm = await Bun.file(
-  new URL("./crates/headless/pkg/gitarium_headless_bg.wasm", import.meta.url),
+  new URL("../crates/headless/pkg/gitarium_headless_bg.wasm", import.meta.url),
 ).arrayBuffer();
 await init({ module_or_path: wasm });
 

@@ -86,8 +86,8 @@ fi
 echo "• ok — no tracked plaintext leaks"
 if command -v bun >/dev/null 2>&1; then
   echo "• regenerating dist/gitarium.html…"
-  bun build-html.ts
+  bun scripts/build-html.ts
   echo "• done → dist/gitarium.html"
 else
-  echo "• skip dist bundle (bun not found); run: bun build-html.ts"
+  echo "• skip dist bundle (bun not found); run: bun scripts/build-html.ts"
 fi

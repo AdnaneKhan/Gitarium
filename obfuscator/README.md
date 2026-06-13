@@ -75,16 +75,16 @@ Flags: `--no-encrypt`, `--no-strip`, `--alias-calls`, `--obf-consts`.
 
 ### Wired into the single-file build
 
-`bun build-html.ts --obfuscate` runs this tool (all passes) over the wasm before
-embedding it — the ideal spot, since `build-html.ts` does no `wasm-opt`
+`bun scripts/build-html.ts --obfuscate` runs this tool (all passes) over the wasm
+before embedding it — the ideal spot, since `build-html.ts` does no `wasm-opt`
 afterward. It writes the obfuscated wasm to a temp file, leaving `pkg/` and the
-glue untouched. Verified end-to-end with `bun build-html.ts --obfuscate --test`
+glue untouched. Verified end-to-end with `bun scripts/build-html.ts --obfuscate --test`
 (headless self-test → `SELFTEST-OK`).
 
 ## Verified
 
 The obfuscated (and obfuscated-then-`wasm-opt`'d) binary passes the project's
-full headless suite — `bun test-browser.ts`: 39/39 + WebGL1/Canvas2D boot
+full headless suite — `bun tests/test-browser.ts`: 39/39 + WebGL1/Canvas2D boot
 smokes + proxy — proving the decrypt-at-`start` restores memory correctly and
 the app is behaviorally unchanged.
 

@@ -39,7 +39,7 @@ mid-event.
 | add a syntax-highlighted language | `crates/ui/src/highlight/langs.rs` |
 | change the agent's tools or loop | `crates/agent/src/agent/` (client) + `app/agent_loop.rs`, `agent_history.rs` (driver) |
 | touch the JS↔wasm boundary | `src/lib.rs`, `src/web_input.rs`, `index.html` |
-| change build size / distribution | `Cargo.toml`, `build-html.ts`, `serve.ts` |
+| change build size / distribution | `Cargo.toml`, `scripts/build-html.ts`, `scripts/serve.ts` |
 
 **Before editing, read [Cross-cutting invariants](#cross-cutting-invariants).**
 The async staleness guards, the Messages-API history discipline, and the
@@ -82,7 +82,7 @@ wasm-opt rejects modern rustc's wasm features and silently skips the size pass).
 
 ## The runtime loop (how a frame happens)
 
-The browser host (`index.html`, mirrored in `build-html.ts`) imports the
+The browser host (`index.html`, mirrored in `scripts/build-html.ts`) imports the
 `web_*` exports from `src/lib.rs` / `src/web_input.rs` and drives an
 **event → frame → message** cycle.
 
@@ -417,7 +417,7 @@ success** — every failure path leaves a valid sendable history; the shell VFS
 survives compaction.
 
 **Headless mode** (`headless.rs` → `agent_run_headless`, driven by
-`agent-headless.ts`): the same loop, self-driving toward a goal, ending when the
+`scripts/agent-headless.ts`): the same loop, self-driving toward a goal, ending when the
 model prints a leading-line sentinel `GOAL_ACHIEVED` / `GOAL_BLOCKED: <reason>`
 (or the turn cap → `max_turns`). Progress streams as JSON events; exit 0 only on
 success.
@@ -490,15 +490,15 @@ before editing.
 ## Build, test & distribution quick reference
 
 **Distribution** (three forms from the same web wasm):
-- **Served `pkg/`** — `bun serve.ts` negotiates brotli/gzip `Content-Encoding`
+- **Served `pkg/`** — `bun scripts/serve.ts` negotiates brotli/gzip `Content-Encoding`
   (the ~2.7 MB wasm ships ~0.86 MB brotli), decoded transparently by the browser.
-- **Single-file** — `bun build-html.ts` → `dist/gitarium.html` (~1.6 MB): glue
+- **Single-file** — `bun scripts/build-html.ts` → `dist/gitarium.html` (~1.6 MB): glue
   inlined, wasm embedded as **gzip** base64, self-decompressed in-page via
   `DecompressionStream` (gzip not brotli — browsers have no native JS brotli
   decoder; brotli is used only on the wire). `--obfuscate` first runs the wasm
   through the `obfuscator/` tool (below) — the right spot, since nothing
   re-optimizes the wasm afterward.
-- **Headless CLI** — `bun agent-headless.ts "<goal>"` (env: `ANTHROPIC_API_KEY`
+- **Headless CLI** — `bun scripts/agent-headless.ts "<goal>"` (env: `ANTHROPIC_API_KEY`
   required, `GITHUB_TOKEN`/`ANTHROPIC_BASE_URL`/`AGENT_MAX_TURNS` optional).
 
 **Obfuscator** (`obfuscator/` — a *separate* crate with its own `[workspace]`,
@@ -513,7 +513,7 @@ because `wasm-opt` folds them away. It only raises the reverse-engineering bar �
 
 **Testing:**
 - `cargo test --workspace` — native unit tests.
-- `bun test-browser.ts` — headless-Chrome suite against the live GitHub API,
+- `bun tests/test-browser.ts` — headless-Chrome suite against the live GitHub API,
   scraping `PASS/FAIL/SUITE:` from the console. It runs the full suite on WebGL2
   (auth, browsing, tree/file/edit/commit flows, Actions runs/jobs, and the
   Issues/Pulls lists + detail — body/comments, PR merge requirements,
