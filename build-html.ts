@@ -18,7 +18,9 @@ const test = process.argv.includes("--test");
 
 const host = `
 // ---- single-file host -----------------------------------------------------
-globalThis.host_wake = () => {};
+// Async results are queued wasm-side and drained by web_frame; rAF is
+// paused in hidden tabs, so schedule an explicit frame on wake.
+globalThis.host_wake = () => setTimeout(() => web_frame(performance.now()), 0);
 
 const b64 = "${b64}";
 const bin = atob(b64);
@@ -28,35 +30,100 @@ for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 await ${initName}({ module_or_path: bytes.buffer });
 
 const canvas = document.getElementById("screen");
-const dpr = window.devicePixelRatio || 1;
+// Read fresh on every use — zoom/monitor changes alter it at runtime.
+const dpr = () => window.devicePixelRatio || 1;
 const sizeCanvas = () => {
-  canvas.width = Math.floor(canvas.clientWidth * dpr);
-  canvas.height = Math.floor(canvas.clientHeight * dpr);
+  canvas.width = Math.floor(canvas.clientWidth * dpr());
+  canvas.height = Math.floor(canvas.clientHeight * dpr());
 };
 sizeCanvas();
 
 let token;
 try { token = localStorage.getItem("rustvm_token") || undefined; } catch {}
-web_start("screen", 15 * dpr, token);
+web_start("screen", 15 * dpr(), token);
 
-window.addEventListener("resize", () => { sizeCanvas(); web_resize(canvas.width, canvas.height); });
+const resized = () => { sizeCanvas(); web_resize(canvas.width, canvas.height); };
+window.addEventListener("resize", resized);
+// dpr can change without a resize (zoom, monitor move); a one-shot media
+// query on the current ratio fires on any change, then re-arms.
+const watchDpr = () => {
+  matchMedia("(resolution: " + dpr() + "dppx)").addEventListener(
+    "change",
+    () => { web_set_font_px(15 * dpr()); resized(); watchDpr(); },
+    { once: true },
+  );
+};
+watchDpr();
+
+// Hidden input that holds focus so IME composition works; composed text
+// arrives via compositionend and is routed like a paste.
+const ime = document.createElement("input");
+ime.setAttribute("autocomplete", "off");
+ime.setAttribute("autocapitalize", "off");
+ime.setAttribute("spellcheck", "false");
+ime.style.cssText = "position:fixed;top:0;left:-9999px;width:1px;height:1px;opacity:0";
+document.body.appendChild(ime);
+let composing = false;
+ime.addEventListener("compositionstart", () => (composing = true));
+ime.addEventListener("compositionend", (e) => {
+  composing = false;
+  if (e.data) web_paste(e.data);
+  ime.value = "";
+});
+ime.addEventListener("input", () => {
+  if (!composing) ime.value = "";
+});
+ime.focus({ preventScroll: true });
+
 window.addEventListener("keydown", (e) => {
-  if (e.metaKey) return;
-  if (e.ctrlKey && e.key === "v") return;
-  if (web_key(e.key, e.ctrlKey, e.altKey, e.shiftKey)) e.preventDefault();
+  if (e.isComposing || e.keyCode === 229) return; // IME owns these
+  // AltGr reports ctrl+alt (or the AltGraph modifier); strip both so chars
+  // like @ { € type on intl layouts. Cmd acts as Ctrl on macOS.
+  const altgr =
+    e.key.length === 1 &&
+    (e.getModifierState?.("AltGraph") || (e.ctrlKey && e.altKey));
+  const ctrl = !altgr && (e.ctrlKey || e.metaKey);
+  const alt = !altgr && e.altKey;
+  if (ctrl && e.key.toLowerCase() === "v") return; // native paste
+  if (web_key(e.key, ctrl, alt, e.shiftKey)) e.preventDefault();
 });
 window.addEventListener("paste", (e) => {
   const t = e.clipboardData?.getData("text");
   if (t) web_paste(t);
   e.preventDefault();
 });
-canvas.addEventListener("mousedown", (e) => web_mouse(e.offsetX * dpr, e.offsetY * dpr));
+
+// Last canvas-relative position, for releases outside the canvas where
+// offsetX/Y would be relative to whatever element is under the cursor.
+let lastX = 0;
+let lastY = 0;
+canvas.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return; // primary button only
+  e.preventDefault(); // keep focus on the IME input
+  ime.focus({ preventScroll: true });
+  lastX = e.offsetX;
+  lastY = e.offsetY;
+  web_mouse_down(e.offsetX * dpr(), e.offsetY * dpr());
+});
 canvas.addEventListener("mousemove", (e) => {
-  web_mouse_move(e.offsetX * dpr, e.offsetY * dpr);
+  lastX = e.offsetX;
+  lastY = e.offsetY;
+  web_mouse_move(e.offsetX * dpr(), e.offsetY * dpr());
   canvas.style.cursor = web_cursor_style();
 });
+// On window so drags released outside the canvas still end.
+window.addEventListener("mouseup", (e) => {
+  if (e.button !== 0) return;
+  const onCanvas = e.target === canvas;
+  web_mouse_up((onCanvas ? e.offsetX : lastX) * dpr(), (onCanvas ? e.offsetY : lastY) * dpr());
+});
+// Released outside the browser window entirely: end any drag.
+window.addEventListener("blur", () => web_mouse_up(lastX * dpr(), lastY * dpr()));
+
 canvas.addEventListener("wheel", (e) => {
-  web_wheel(e.offsetX * dpr, e.offsetY * dpr, e.deltaY * dpr);
+  // deltaMode: 0=pixels, 1=lines, 2=pages → normalize to CSS px.
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? canvas.clientHeight : 1;
+  web_wheel(e.offsetX * dpr(), e.offsetY * dpr(), e.deltaY * unit * dpr());
   e.preventDefault();
 }, { passive: false });
 

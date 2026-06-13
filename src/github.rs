@@ -243,23 +243,43 @@ pub async fn current_user(token: &Option<String>) -> Result<User, String> {
 const PER_PAGE: usize = 100;
 /// Runaway guard for pagination (10k repos). Anonymous sessions exhaust
 /// their 60 req/hour budget long before this; the loop then returns what
-/// it collected so far.
+/// it collected so far, flagged as truncated.
 const MAX_PAGES: usize = 100;
+
+/// Why a repo listing stopped before the real end of the data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Truncation {
+    /// A page after the first failed (rate limit, auth, network); the
+    /// payload is that page's error.
+    Error(String),
+    /// The MAX_PAGES runaway guard tripped; more pages may exist.
+    MaxPages,
+}
+
+/// A repo listing plus an optional reason it is incomplete. `truncated:
+/// None` means every page was fetched; `Some` means the list is partial
+/// and the UI should say so.
+#[derive(Clone, Debug)]
+pub struct RepoList {
+    pub repos: Vec<Repo>,
+    pub truncated: Option<Truncation>,
+}
 
 /// Fetch successive pages of `base` (a path that already has a query
 /// string, no `page` param) until a short page signals the end. Pass page 1
 /// in `first` when it was already fetched. Errors after the first page
-/// (rate limit, network) end the loop with the repos collected so far.
+/// (rate limit, network) end the loop with the repos collected so far and
+/// the error recorded in `truncated`.
 async fn paged_repos(
     token: &Option<String>,
     base: &str,
     first: Option<Vec<Repo>>,
-) -> Result<Vec<Repo>, String> {
+) -> Result<RepoList, String> {
     let mut all: Vec<Repo> = Vec::new();
     let mut page = 1;
     if let Some(f) = first {
         if f.len() < PER_PAGE {
-            return Ok(f);
+            return Ok(RepoList { repos: f, truncated: None });
         }
         all = f;
         page = 2;
@@ -275,36 +295,87 @@ async fn paged_repos(
                 let n = batch.len();
                 all.append(&mut batch);
                 if n < PER_PAGE {
-                    break;
+                    return Ok(RepoList { repos: all, truncated: None });
                 }
             }
             Err(e) => {
                 if all.is_empty() {
                     return Err(e);
                 }
-                break; // partial result beats dropping everything fetched
+                // Partial result beats dropping everything fetched, but
+                // the gap has to stay visible.
+                return Ok(RepoList { repos: all, truncated: Some(Truncation::Error(e)) });
             }
         }
         page += 1;
     }
-    Ok(all)
+    // Fell off the page cap with the last page still full.
+    Ok(RepoList { repos: all, truncated: Some(Truncation::MaxPages) })
 }
 
-pub async fn list_repos(token: &Option<String>) -> Result<Vec<Repo>, String> {
-    let base =
-        "/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member";
-    paged_repos(token, base, None).await
+/// Repos of the authenticated user, with truncation reported.
+pub async fn list_repos_full(token: &Option<String>) -> Result<RepoList, String> {
+    let base = format!(
+        "/user/repos?per_page={}&sort=pushed&affiliation=owner,collaborator,organization_member",
+        PER_PAGE
+    );
+    paged_repos(token, &base, None).await
 }
 
-/// All repos of an organization (paginated); falls back to the users
-/// endpoint when the name turns out to be a user account (the orgs
-/// endpoint 404s for those).
-pub async fn list_owner_repos(token: &Option<String>, owner: &str) -> Result<Vec<Repo>, String> {
-    let org_base = format!("/orgs/{}/repos?per_page=100&sort=pushed&type=all", enc(owner));
+/// What `/users/{owner}` says an account is, to disambiguate the org-repos
+/// 404 fallback.
+enum OwnerKind {
+    User,
+    Organization,
+    /// 404 — no such account visible to this token.
+    Missing,
+}
+
+async fn owner_kind(token: &Option<String>, owner: &str) -> Result<OwnerKind, String> {
+    #[derive(Deserialize)]
+    struct Account {
+        #[serde(rename = "type", default)]
+        kind: String,
+    }
+    let (s, b) = api("GET", &format!("/users/{}", enc(owner)), token, None).await?;
+    if s == 404 {
+        return Ok(OwnerKind::Missing);
+    }
+    let acct: Account = parse(s, b)?;
+    match acct.kind.as_str() {
+        "User" => Ok(OwnerKind::User),
+        "Organization" => Ok(OwnerKind::Organization),
+        other => Err(format!("unexpected account type '{}'", other)),
+    }
+}
+
+/// All repos of an organization (paginated), with truncation reported.
+/// The orgs endpoint 404s both for user accounts and for orgs this token
+/// cannot see, so a 404 is disambiguated via `/users/{owner}` (one extra
+/// request): a real user account falls back to the public users listing;
+/// an existing org (or an unresolvable owner) is an access error, not a
+/// silently shorter list.
+pub async fn list_owner_repos_full(
+    token: &Option<String>,
+    owner: &str,
+) -> Result<RepoList, String> {
+    let org_base =
+        format!("/orgs/{}/repos?per_page={}&sort=pushed&type=all", enc(owner), PER_PAGE);
     let (s, b) = api("GET", &format!("{}&page=1", org_base), token, None).await?;
     if s == 404 {
-        let user_base = format!("/users/{}/repos?per_page=100&sort=pushed", enc(owner));
-        return paged_repos(token, &user_base, None).await;
+        return match owner_kind(token, owner).await {
+            Ok(OwnerKind::User) => {
+                let user_base =
+                    format!("/users/{}/repos?per_page={}&sort=pushed", enc(owner), PER_PAGE);
+                paged_repos(token, &user_base, None).await
+            }
+            Ok(OwnerKind::Organization) => Err(format!(
+                "no access to organization '{}' (token may lack org scope or SSO authorization)",
+                owner
+            )),
+            Ok(OwnerKind::Missing) => Err(format!("'{}' not found (or no access)", owner)),
+            Err(e) => Err(format!("cannot resolve owner '{}': {}", owner, e)),
+        };
     }
     let first: Vec<Repo> = parse(s, b)?;
     paged_repos(token, &org_base, Some(first)).await
@@ -498,6 +569,11 @@ pub async fn search_code(
 
 /// Extract the single line containing the match (byte indices into the
 /// fragment) and convert the match to char indices within that line.
+/// GitHub's text-match offsets can land on a line terminator; a match that
+/// starts there belongs to the *following* line, so leading `\r`/`\n` bytes
+/// are stepped over and the line holding the first matched content wins.
+/// Arbitrary offsets (out of range, reversed, mid-UTF-8) are clamped to
+/// char boundaries, never panicking.
 fn fragment_line(fragment: &str, byte_range: Option<(usize, usize)>) -> (String, Option<(usize, usize)>) {
     let Some((ms, me)) = byte_range else {
         let first = fragment.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
@@ -511,6 +587,12 @@ fn fragment_line(fragment: &str, byte_range: Option<(usize, usize)>) -> (String,
     while me < fragment.len() && !fragment.is_char_boundary(me) {
         me += 1;
     }
+    // A match that starts on a line terminator terminates the previous
+    // line but belongs to the next one — step to the first content byte.
+    while ms < fragment.len() && matches!(fragment.as_bytes()[ms], b'\n' | b'\r') {
+        ms += 1;
+    }
+    let me = me.max(ms);
     let start = fragment[..ms].rfind('\n').map(|i| i + 1).unwrap_or(0);
     let end = fragment[ms..].find('\n').map(|i| ms + i).unwrap_or(fragment.len());
     let line_raw = &fragment[start..end];
@@ -536,3 +618,106 @@ pub fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
 pub fn b64_encode(data: &[u8]) -> String {
     B64.encode(data)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::fragment_line;
+
+    #[test]
+    fn no_range_picks_first_nonempty_line() {
+        let (line, range) = fragment_line("\n   \nfn main() {}\n", None);
+        assert_eq!(line, "fn main() {}");
+        assert_eq!(range, None);
+        assert_eq!(fragment_line("", None), (String::new(), None));
+    }
+
+    #[test]
+    fn match_mid_line() {
+        let frag = "alpha\n  beta gamma\ndelta";
+        let ms = frag.find("gamma").unwrap();
+        let (line, range) = fragment_line(frag, Some((ms, ms + "gamma".len())));
+        assert_eq!(line, "beta gamma");
+        assert_eq!(range, Some((5, 10)));
+    }
+
+    #[test]
+    fn match_at_fragment_start_and_end() {
+        let frag = "hello\nworld";
+        assert_eq!(fragment_line(frag, Some((0, 5))), ("hello".to_string(), Some((0, 5))));
+        // Zero-width match at the very end stays on the last line.
+        assert_eq!(fragment_line(frag, Some((11, 11))), ("world".to_string(), Some((5, 5))));
+    }
+
+    #[test]
+    fn match_on_newline_picks_following_line() {
+        let frag = "first\nsecond";
+        // Match text begins at the '\n' (covers "\nsec").
+        let (line, range) = fragment_line(frag, Some((5, 9)));
+        assert_eq!(line, "second");
+        assert_eq!(range, Some((0, 3)));
+        // Match that is exactly the newline maps to the start of the
+        // following line.
+        let (line, range) = fragment_line(frag, Some((5, 6)));
+        assert_eq!(line, "second");
+        assert_eq!(range, Some((0, 0)));
+    }
+
+    #[test]
+    fn match_on_crlf_and_blank_lines_skips_to_content() {
+        // "\r\nb" — CRLF terminator stepped over as one unit.
+        let (line, range) = fragment_line("a\r\nb", Some((1, 4)));
+        assert_eq!(line, "b");
+        assert_eq!(range, Some((0, 1)));
+        // "\n\nbc" — blank line between match start and content.
+        let (line, range) = fragment_line("a\n\nbc", Some((1, 5)));
+        assert_eq!(line, "bc");
+        assert_eq!(range, Some((0, 2)));
+    }
+
+    #[test]
+    fn trailing_newline_match_yields_empty_following_line() {
+        let (line, range) = fragment_line("abc\n", Some((3, 4)));
+        assert_eq!(line, "");
+        assert_eq!(range, Some((0, 0)));
+    }
+
+    #[test]
+    fn multibyte_around_match() {
+        let frag = "héllo wörld\nnaïve";
+        let ms = frag.find("wörld").unwrap();
+        let (line, range) = fragment_line(frag, Some((ms, ms + "wörld".len())));
+        assert_eq!(line, "héllo wörld");
+        // Char indices, not byte indices.
+        assert_eq!(range, Some((6, 11)));
+    }
+
+    #[test]
+    fn offsets_inside_utf8_sequence_snap_to_boundaries() {
+        // Byte 2 sits inside 'é' (bytes 1..3): start snaps down, end up.
+        let (line, range) = fragment_line("héllo", Some((2, 2)));
+        assert_eq!(line, "héllo");
+        assert_eq!(range, Some((1, 2)));
+    }
+
+    #[test]
+    fn out_of_range_and_reversed_offsets_are_clamped() {
+        let frag = "abc\ndef";
+        let (line, range) = fragment_line(frag, Some((50, 99)));
+        assert_eq!(line, "def");
+        assert_eq!(range, Some((3, 3)));
+        let (line, range) = fragment_line(frag, Some((2, 1)));
+        assert_eq!(line, "abc");
+        assert_eq!(range, Some((2, 2)));
+        assert_eq!(fragment_line("", Some((3, 7))), (String::new(), Some((0, 0))));
+    }
+
+    #[test]
+    fn indented_line_range_is_relative_to_trimmed_line() {
+        let frag = "fn x() {\n    let y = 1;\n}";
+        let ms = frag.find("let").unwrap();
+        let (line, range) = fragment_line(frag, Some((ms, ms + 3)));
+        assert_eq!(line, "let y = 1;");
+        assert_eq!(range, Some((0, 3)));
+    }
+}
+

@@ -46,6 +46,9 @@ pub struct View {
     last_sel: HashMap<u8, usize>,
     last_editor_scroll: usize,
     last_agent_rev: u64,
+    /// Agent scroll extent on the previous frame — "was the user at the
+    /// bottom?" must be judged against the extent before a content change.
+    last_agent_max: f32,
     overlay_t: Smooth,
     toast_t: Smooth,
     route_t: Smooth,
@@ -53,13 +56,20 @@ pub struct View {
     tab_x: Smooth,
     tab_w: Smooth,
     clicks: Vec<(RectF, Click)>,
-    wheels: Vec<(RectF, Scroll, f32)>, // rect, target, row_h
+    wheels: Vec<(RectF, Scroll, f32, f32)>, // rect, target, row_h, max scroll px
     editor_geom: Option<EditorGeom>,
     /// Agent transcript layout from the last frame: inner rect, row height,
     /// mono advance, scroll offset — plus the wrapped text for hit-testing
     /// and clipboard copy.
     agent_geom: Option<(RectF, f32, f32, f32)>,
     agent_lines: Vec<String>,
+    /// Per wrapped line: logical source-line id; wrapped segments of one
+    /// source line share it. None marks label/separator decoration lines,
+    /// which are excluded from copies.
+    agent_src: Vec<Option<u32>>,
+    /// Per wrapped line: measured char-boundary x offsets, only for lines
+    /// whose drawn advances aren't uniform mono cells (labels, non-ASCII).
+    agent_xs: Vec<Option<Vec<f32>>>,
     /// Transcript selection: (anchor, head) as (line, col), unnormalized.
     agent_sel: Option<((usize, usize), (usize, usize))>,
     drag: Drag,
@@ -90,6 +100,10 @@ const Z_TAB: u8 = 3;
 const Z_CHIP: u8 = 4;
 const Z_OVER: u8 = 5;
 const Z_RUN: u8 = 6;
+// File/code search rows get their own zones: sharing Z_OVER with index
+// offsets collides once the branch list outgrows the offset.
+const Z_FILE: u8 = 7;
+const Z_GREP: u8 = 8;
 
 impl View {
     pub fn new(scale: f32) -> Self {
@@ -106,6 +120,7 @@ impl View {
             last_sel: HashMap::new(),
             last_editor_scroll: 0,
             last_agent_rev: 0,
+            last_agent_max: 0.0,
             overlay_t: Smooth::new(0.0),
             toast_t: Smooth::new(0.0),
             route_t: Smooth::new(1.0),
@@ -117,6 +132,8 @@ impl View {
             editor_geom: None,
             agent_geom: None,
             agent_lines: Vec::new(),
+            agent_src: Vec::new(),
+            agent_xs: Vec::new(),
             agent_sel: None,
             drag: Drag::None,
             cursor_pointer: false,
@@ -181,11 +198,28 @@ impl View {
         if let Some(g) = self.editor_geom {
             if g.rect.contains(x, y) {
                 let row = ((y - g.rect.y + g.scroll_px) / g.line_h).floor().max(0.0) as usize;
-                let cell_x = ((x - g.rect.x + g.hscroll_px) / g.adv + 0.35).max(0.0) as usize;
+                let cell_x = ((x - g.rect.x + g.hscroll_px) / g.adv + 0.5).max(0.0) as usize;
                 return Some(Click::EditorPos { row, cell_x });
             }
         }
         self.clicks.iter().rev().find(|(r, _)| r.contains(x, y)).map(|(_, c)| *c)
+    }
+
+    /// Pen x offset of char boundary `c` on wrapped transcript line `i`:
+    /// measured boundaries when the line has them, uniform cells otherwise.
+    /// Boundaries past the end continue in mono cells (the newline cell).
+    fn agent_col_x(&self, i: usize, c: usize, adv: f32) -> f32 {
+        match self.agent_xs.get(i).and_then(|t| t.as_ref()) {
+            Some(xs) => {
+                let last = xs.len() - 1;
+                if c <= last {
+                    xs[c]
+                } else {
+                    xs[last] + (c - last) as f32 * adv
+                }
+            }
+            None => c as f32 * adv,
+        }
     }
 
     /// (line, col) under a pixel position in the agent transcript. With
@@ -199,26 +233,50 @@ impl View {
         let line = ((((y - inner.y + offset) / row).floor()).max(0.0) as usize)
             .min(self.agent_lines.len() - 1);
         let len = self.agent_lines[line].chars().count();
-        let col = ((((x - inner.x) / adv) + 0.5).max(0.0) as usize).min(len);
+        let xrel = x - inner.x;
+        let col = match self.agent_xs.get(line).and_then(|t| t.as_ref()) {
+            // Nearest measured boundary — same advances the line was drawn with.
+            Some(xs) => {
+                let mut best = (0usize, f32::MAX);
+                for (c, &bx) in xs.iter().enumerate() {
+                    let d = (bx - xrel).abs();
+                    if d <= best.1 {
+                        best = (c, d);
+                    }
+                }
+                best.0
+            }
+            None => (((xrel / adv) + 0.5).max(0.0) as usize).min(len),
+        };
         Some((line, col))
     }
 
-    /// The transcript selection as text, for the system clipboard.
+    /// The transcript selection as text, for the system clipboard. Wrapped
+    /// segments of one source line join without injected newlines; label
+    /// and separator decoration lines are skipped. None when the transcript
+    /// pane wasn't drawn last frame or the selection resolves to nothing.
     pub fn agent_selection_text(&self) -> Option<String> {
+        self.agent_geom?;
         let (a, b) = self.agent_sel?;
         let (a, b) = if a <= b { (a, b) } else { (b, a) };
         if a == b {
             return None;
         }
         let mut out = String::new();
+        let mut prev_src: Option<u32> = None;
         for i in a.0..=b.0 {
             let chars: Vec<char> = self.agent_lines.get(i)?.chars().collect();
+            let Some(src) = *self.agent_src.get(i)? else { continue };
             let c0 = if i == a.0 { a.1.min(chars.len()) } else { 0 };
             let c1 = if i == b.0 { b.1.min(chars.len()) } else { chars.len() };
-            out.extend(&chars[c0..c1]);
-            if i != b.0 {
+            if prev_src.is_some() && prev_src != Some(src) {
                 out.push('\n');
             }
+            out.extend(&chars[c0..c1]);
+            prev_src = Some(src);
+        }
+        if out.is_empty() {
+            return None;
         }
         Some(out)
     }
@@ -226,6 +284,9 @@ impl View {
     pub fn on_mouse_down(&mut self, app: &mut App, x: f32, y: f32) {
         self.mouse = (x, y);
         self.needs_frame = true;
+        // A release outside the window never reaches on_mouse_up; a fresh
+        // press must not resume that stale drag.
+        self.drag = Drag::None;
         if let Some(click) = self.click_at(x, y) {
             if matches!(click, Click::EditorPos { .. }) {
                 self.drag = Drag::Editor;
@@ -258,7 +319,7 @@ impl View {
             Drag::Editor => {
                 if let Some(g) = self.editor_geom {
                     let row = ((y - g.rect.y + g.scroll_px) / g.line_h).floor().max(0.0) as usize;
-                    let cell_x = ((x - g.rect.x + g.hscroll_px) / g.adv + 0.35).max(0.0) as usize;
+                    let cell_x = ((x - g.rect.x + g.hscroll_px) / g.adv + 0.5).max(0.0) as usize;
                     app.editor_drag(row, cell_x);
                 }
             }
@@ -278,10 +339,12 @@ impl View {
     }
 
     pub fn wheel(&mut self, app: &mut App, x: f32, y: f32, dy_px: f32) {
-        let hit = self.wheels.iter().rev().find(|(r, _, _)| r.contains(x, y)).map(|(_, t, rh)| (*t, *rh));
-        let Some((target, row_h)) = hit else { return };
+        let hit = self.wheels.iter().rev().find(|(r, ..)| r.contains(x, y)).map(|(_, t, rh, m)| (*t, *rh, *m));
+        let Some((target, row_h, max_px)) = hit else { return };
         let s = self.scrolls.entry(skey(target)).or_insert_with(|| Smooth::new(0.0));
-        s.target += dy_px;
+        // Clamp to the content extent so the wheel can't rubber-band into a
+        // dead zone past either end of the list.
+        s.target = (s.target + dy_px).clamp(0.0, max_px);
         // Row write-back keeps keyboard navigation coherent in App state.
         let rows = (s.target.max(0.0) / row_h) as usize;
         match target {
@@ -786,7 +849,7 @@ impl View {
                 }
                 dl.pop_clip();
                 self.scrollbar(dl, &list, filtered.len() as f32 * row_h, offset);
-                self.wheels.push((list, Scroll::Repos, row_h));
+                self.wheels.push((list, Scroll::Repos, row_h, (filtered.len() as f32 * row_h - list.h).max(0.0)));
             }
         }
     }
@@ -884,6 +947,9 @@ impl View {
 
         // No API key yet: key/endpoint entry panel, mirroring the auth screen.
         if app.anthropic_key.is_none() {
+            // No transcript pane this frame — a previous visit's selection
+            // must not survive into the key prompt (stale Ctrl+C copy).
+            self.agent_sel = None;
             let pw = self.f(560.0).min(w - self.f(32.0));
             let ph = self.f(330.0);
             let r = RectF::new((w - pw) / 2.0, (h - ph) / 2.0 - self.f(30.0) + yoff, pw, ph);
@@ -973,47 +1039,68 @@ impl View {
             label: bool,
             code: bool,
             spans: Vec<highlight::Span>,
+            /// Logical source-line id; wrapped segments of one source line
+            /// share it. None = decoration (label / separator).
+            src: Option<u32>,
         }
-        let plain = |text: String, color: Color| TLine {
+        let deco = |text: String, color: Color| TLine {
             text,
             color,
             label: false,
             code: false,
             spans: Vec::new(),
+            src: None,
         };
         let mut lines: Vec<TLine> = Vec::new();
-        let push_wrapped = |lines: &mut Vec<TLine>, text: &str, color: Color| {
-            let mut buf = Vec::new();
-            wrap_chars(text, cols, &mut buf);
-            for l in buf {
-                lines.push(plain(l, color));
+        let mut next_src: u32 = 0;
+        let push_wrapped = |lines: &mut Vec<TLine>, next_src: &mut u32, text: &str, color: Color| {
+            for raw in text.split('\n') {
+                let src = *next_src;
+                *next_src += 1;
+                let mut buf = Vec::new();
+                wrap_chars(raw, cols, &mut buf);
+                for l in buf {
+                    lines.push(TLine {
+                        text: l,
+                        color,
+                        label: false,
+                        code: false,
+                        spans: Vec::new(),
+                        src: Some(src),
+                    });
+                }
             }
         };
         // Assistant text: ``` fences become syntax-highlighted code blocks.
-        let push_assistant = |lines: &mut Vec<TLine>, t: &str| {
+        let push_assistant = |lines: &mut Vec<TLine>, next_src: &mut u32, t: &str| {
             let mut in_code = false;
             let mut spec: Option<&'static highlight::LangSpec> = None;
             let mut state = LineState::Normal;
             for raw in t.split('\n') {
                 let trimmed = raw.trim_start();
-                if trimmed.starts_with("```") {
+                // Line-anchored fences: any ``` line opens (first info-string
+                // token is the language); only a bare ``` closes, so stray
+                // backticks inside a block stay content.
+                if trimmed.starts_with("```") && (!in_code || trimmed[3..].trim().is_empty()) {
                     in_code = !in_code;
                     if in_code {
-                        spec = lang_for_tag(trimmed[3..].trim());
+                        spec = lang_for_tag(trimmed[3..].split_whitespace().next().unwrap_or(""));
                         state = LineState::Normal;
                     }
                     continue;
                 }
                 if !in_code {
-                    push_wrapped(lines, raw, with_a(TEXT, 0.92));
+                    push_wrapped(lines, next_src, raw, with_a(TEXT, 0.92));
                     continue;
                 }
-                let expanded = raw.replace('\t', "    ");
+                let expanded = raw.replace('\r', "").replace('\t', "    ");
                 let (spans, next) = match spec {
                     Some(sp) => highlight::highlight(sp, &expanded, state),
                     None => (Vec::new(), state),
                 };
                 state = next;
+                let src = *next_src;
+                *next_src += 1;
                 let chars: Vec<char> = expanded.chars().collect();
                 let mut s0 = 0;
                 loop {
@@ -1029,6 +1116,7 @@ impl View {
                         label: false,
                         code: true,
                         spans: seg_spans,
+                        src: Some(src),
                     });
                     s0 = s1;
                     if s0 >= chars.len() {
@@ -1046,8 +1134,9 @@ impl View {
                         label: true,
                         code: false,
                         spans: Vec::new(),
+                        src: None,
                     });
-                    push_wrapped(&mut lines, t, TEXT);
+                    push_wrapped(&mut lines, &mut next_src, t, TEXT);
                 }
                 AgentItem::Text(t) => {
                     lines.push(TLine {
@@ -1056,8 +1145,9 @@ impl View {
                         label: true,
                         code: false,
                         spans: Vec::new(),
+                        src: None,
                     });
-                    push_assistant(&mut lines, t);
+                    push_assistant(&mut lines, &mut next_src, t);
                 }
                 AgentItem::Tool { label, done } => {
                     let (icon, color) = match done {
@@ -1065,11 +1155,11 @@ impl View {
                         Some(true) => ('✓', GREEN),
                         Some(false) => ('✗', RED),
                     };
-                    push_wrapped(&mut lines, &format!("{} {}", icon, label), with_a(color, 0.85));
+                    push_wrapped(&mut lines, &mut next_src, &format!("{} {}", icon, label), with_a(color, 0.85));
                 }
-                AgentItem::Error(e) => push_wrapped(&mut lines, &format!("✗ {}", e), RED),
+                AgentItem::Error(e) => push_wrapped(&mut lines, &mut next_src, &format!("✗ {}", e), RED),
             }
-            lines.push(plain(String::new(), TEXT));
+            lines.push(deco(String::new(), TEXT));
         }
         if lines.is_empty() {
             dl.text(
@@ -1094,14 +1184,31 @@ impl View {
             );
         }
 
+        // A (line, col) selection silently re-targets different text when
+        // wrapping shifts (streaming re-wrap, resize): keep it only while
+        // every wrapped line up to its end is unchanged.
+        if let Some((a, b)) = self.agent_sel {
+            let hi = a.0.max(b.0);
+            let intact = hi < lines.len()
+                && hi < self.agent_lines.len()
+                && (0..=hi).all(|i| lines[i].text == self.agent_lines[i]);
+            if !intact {
+                self.agent_sel = None;
+            }
+        }
+
         let content_h = lines.len() as f32 * row;
         let max = (content_h - inner.h).max(0.0);
-        let stick = app.agent.rev != self.last_agent_rev;
+        let rev_changed = app.agent.rev != self.last_agent_rev;
         self.last_agent_rev = app.agent.rev;
         let s = self.scrolls.entry(skey(Scroll::Agent)).or_insert_with(|| Smooth::new(0.0));
-        if stick {
+        // Re-stick to the bottom on new content only when the user was
+        // already reading the bottom (against the *previous* extent) and
+        // isn't mid-drag-selection; never yank them off history.
+        if rev_changed && self.drag != Drag::Agent && s.target >= self.last_agent_max - row {
             s.target = max;
         }
+        self.last_agent_max = max;
         s.target = s.target.clamp(0.0, max);
         if s.tick(self.dt, 14.0) {
             self.active = true;
@@ -1110,7 +1217,30 @@ impl View {
 
         // Expose layout + text to the input layer (drag selection, copy).
         self.agent_lines = lines.iter().map(|l| l.text.clone()).collect();
+        self.agent_src = lines.iter().map(|l| l.src).collect();
+        self.agent_xs = lines
+            .iter()
+            .map(|l| {
+                if l.label {
+                    // Mirrors the label draw call: UI_BOLD at 11.5 with tracking.
+                    Some(atlas.char_xs(UI_BOLD, self.f(11.5), &l.text, self.f(2.5)))
+                } else if l.text.is_ascii() {
+                    None // uniform mono cells
+                } else {
+                    Some(atlas.char_xs(MONO, px, &l.text, 0.0))
+                }
+            })
+            .collect();
         self.agent_geom = Some((inner, row, adv, offset));
+        // While dragging, re-derive the head from the cursor through *this*
+        // frame's offset so the band can't lag the scroll animation.
+        if self.drag == Drag::Agent && self.agent_sel.is_some() {
+            if let Some(pos) = self.agent_pos_at(self.mouse.0, self.mouse.1, true) {
+                if let Some(sel) = &mut self.agent_sel {
+                    sel.1 = pos;
+                }
+            }
+        }
         let sel = self.agent_sel.map(|(a, b)| if a <= b { (a, b) } else { (b, a) });
 
         dl.push_clip(inner);
@@ -1131,10 +1261,9 @@ impl View {
                     let c0 = if i == a.0 { a.1.min(len) } else { 0 };
                     let c1 = if i == b.0 { b.1.min(len) } else { len + 1 };
                     if c1 > c0 {
-                        dl.solid(
-                            RectF::new(inner.x + c0 as f32 * adv, ytop, (c1 - c0) as f32 * adv, row),
-                            with_a(CYAN, 0.2),
-                        );
+                        let x0 = self.agent_col_x(i, c0, adv);
+                        let x1 = self.agent_col_x(i, c1, adv);
+                        dl.solid(RectF::new(inner.x + x0, ytop, x1 - x0, row), with_a(CYAN, 0.2));
                     }
                 }
             }
@@ -1159,7 +1288,7 @@ impl View {
                         .map(|(_, _, c)| super::theme::c(*c, 1.0))
                         .unwrap_or(l.color);
                     if color != run_color && !run.is_empty() {
-                        dl.text(atlas, MONO, px, inner.x + run_start as f32 * adv, y, &run, run_color, 0.0);
+                        dl.text(atlas, MONO, px, inner.x + self.agent_col_x(i, run_start, adv), y, &run, run_color, 0.0);
                         run.clear();
                     }
                     if run.is_empty() {
@@ -1169,7 +1298,7 @@ impl View {
                     run.push(ch);
                 }
                 if !run.is_empty() {
-                    dl.text(atlas, MONO, px, inner.x + run_start as f32 * adv, y, &run, run_color, 0.0);
+                    dl.text(atlas, MONO, px, inner.x + self.agent_col_x(i, run_start, adv), y, &run, run_color, 0.0);
                 }
             } else {
                 dl.text(atlas, MONO, px, inner.x, y, &l.text, l.color, 0.0);
@@ -1177,7 +1306,7 @@ impl View {
         }
         dl.pop_clip();
         self.scrollbar(dl, &pane, content_h + pad * 2.0, offset);
-        self.wheels.push((pane, Scroll::Agent, row));
+        self.wheels.push((pane, Scroll::Agent, row, max));
 
         // ---- prompt input ----
         let bar = RectF::new(pane.x, pane.bottom() + self.f(10.0), pane.w, self.f(40.0));
@@ -1273,7 +1402,7 @@ impl View {
                 }
                 dl.pop_clip();
                 self.scrollbar(dl, &inner, count as f32 * row_h, offset);
-                self.wheels.push((tree, Scroll::Tree, row_h));
+                self.wheels.push((tree, Scroll::Tree, row_h, (count as f32 * row_h - inner.h).max(0.0)));
                 if truncated {
                     dl.text(atlas, UI, self.f(11.0), tree.x + self.f(10.0), tree.bottom() - self.f(8.0), "⚠ TREE TRUNCATED", YELLOW, self.f(1.0));
                 }
@@ -1494,7 +1623,7 @@ impl View {
         }
         dl.pop_clip();
         self.scrollbar(dl, &body, total as f32 * line_h, offset);
-        self.wheels.push((body, Scroll::Content, line_h));
+        self.wheels.push((body, Scroll::Content, line_h, max));
         self.editor_geom = Some(EditorGeom {
             rect: text_rect,
             line_h,
@@ -1597,7 +1726,7 @@ impl View {
                 }
                 dl.pop_clip();
                 self.scrollbar(dl, &list, count as f32 * row_h, offset);
-                self.wheels.push((left, Scroll::Runs, row_h));
+                self.wheels.push((left, Scroll::Runs, row_h, (count as f32 * row_h - list.h).max(0.0)));
             }
         }
 
@@ -1649,7 +1778,7 @@ impl View {
                         let fitted = dl.fit(atlas, font, self.f(13.0), name, jlist.w - indent - self.f(30.0));
                         dl.text(atlas, font, self.f(13.0), jlist.x + self.f(22.0) + indent, baseline, &fitted, if *bold { TEXT } else { with_a(TEXT, 0.75) }, 0.0);
                     }
-                    self.wheels.push((right, Scroll::Jobs, jrow));
+                    self.wheels.push((right, Scroll::Jobs, jrow, (lines.len() as f32 * jrow - jlist.h).max(0.0)));
                 }
                 dl.pop_clip();
             }
@@ -1731,6 +1860,7 @@ impl View {
         self.clicks.clear();
         self.wheels.clear();
         self.editor_geom = None;
+        self.agent_geom = None;
 
         dl.solid(RectF::new(0.0, 0.0, w, h), [0.0, 0.0, 0.0, 0.55 * k]);
         let pw = self.f(560.0).min(w - self.f(40.0));
@@ -1819,7 +1949,7 @@ impl View {
                 }
                 dl.pop_clip();
                 self.scrollbar(dl, &list, branches.len() as f32 * row_h, offset);
-                self.wheels.push((list, Scroll::Overlay, row_h));
+                self.wheels.push((list, Scroll::Overlay, row_h, (branches.len() as f32 * row_h - list.h).max(0.0)));
             }
             Overlay::FileSearch { input, sel } => {
                 let input = input.clone_shallow();
@@ -1856,7 +1986,7 @@ impl View {
                     let i = first + vis;
                     let y = y0 + vis as f32 * row_h;
                     let rr = RectF::new(r.x + self.f(16.0), y, r.w - self.f(32.0), row_h - 2.0);
-                    let hv = self.hover_amt(wid(Z_OVER, 1000 + i), rr.contains(self.mouse.0, self.mouse.1));
+                    let hv = self.hover_amt(wid(Z_FILE, i), rr.contains(self.mouse.0, self.mouse.1));
                     let a = if i == sel { 0.13 } else { 0.06 * hv };
                     if a > 0.005 {
                         dl.rrect(rr, self.f(3.0), with_a(CYAN, a), 1.0);
@@ -1946,7 +2076,7 @@ impl View {
                             let (path, line, range) = &hits[i];
                             let y = y0 + vis as f32 * row_h;
                             let rr = RectF::new(r.x + self.f(16.0), y, r.w - self.f(32.0), row_h - 4.0);
-                            let hv = self.hover_amt(wid(Z_OVER, 2000 + i), rr.contains(self.mouse.0, self.mouse.1));
+                            let hv = self.hover_amt(wid(Z_GREP, i), rr.contains(self.mouse.0, self.mouse.1));
                             let a = if i == sel { 0.13 } else { 0.06 * hv };
                             if a > 0.005 {
                                 dl.rrect(rr, self.f(3.0), with_a(CYAN, a), 1.0);
@@ -2118,38 +2248,48 @@ fn lang_for_tag(tag: &str) -> Option<&'static highlight::LangSpec> {
     highlight::lang_for_path(&format!("f.{}", ext))
 }
 
-/// Wrap text to a mono-column budget: split on newlines, then soft-wrap on
-/// spaces, hard-breaking words longer than one line.
+/// Wrap text to a mono-column budget: split on newlines, then soft-wrap
+/// before words, hard-breaking words longer than one line. Tabs expand to
+/// four spaces and CRs are dropped; every remaining char (indentation,
+/// runs of spaces, whitespace-only lines) lands in exactly one segment, so
+/// the segments of a source line concatenate back to it verbatim.
 fn wrap_chars(text: &str, cols: usize, out: &mut Vec<String>) {
+    let cols = cols.max(1);
     for raw in text.split('\n') {
-        if raw.is_empty() {
+        let raw = raw.replace('\r', "").replace('\t', "    ");
+        let chars: Vec<char> = raw.chars().collect();
+        if chars.is_empty() {
             out.push(String::new());
             continue;
         }
         let mut line = String::new();
         let mut count = 0usize;
-        for word in raw.split(' ') {
-            let wlen = word.chars().count();
-            if count > 0 && count + 1 + wlen > cols {
+        let mut i = 0usize;
+        while i < chars.len() {
+            let start = i;
+            let space = chars[i] == ' ';
+            while i < chars.len() && (chars[i] == ' ') == space {
+                i += 1;
+            }
+            let token = &chars[start..i];
+            if space {
+                // Spaces stay on the current line even past the budget;
+                // trailing overflow draws nothing visible.
+                line.extend(token);
+                count += token.len();
+                continue;
+            }
+            if count > 0 && count + token.len() > cols {
                 out.push(std::mem::take(&mut line));
                 count = 0;
             }
-            if count > 0 {
-                line.push(' ');
-                count += 1;
-            }
-            if wlen > cols {
-                for ch in word.chars() {
-                    if count >= cols {
-                        out.push(std::mem::take(&mut line));
-                        count = 0;
-                    }
-                    line.push(ch);
-                    count += 1;
+            for &ch in token {
+                if count >= cols {
+                    out.push(std::mem::take(&mut line));
+                    count = 0;
                 }
-            } else {
-                line.push_str(word);
-                count += wlen;
+                line.push(ch);
+                count += 1;
             }
         }
         out.push(line);
@@ -2172,4 +2312,63 @@ fn busy(app: &App) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrap_chars;
+
+    fn w(text: &str, cols: usize) -> Vec<String> {
+        let mut v = Vec::new();
+        wrap_chars(text, cols, &mut v);
+        v
+    }
+
+    #[test]
+    fn wrap_soft_and_hard_breaks() {
+        assert_eq!(w("hello world foo", 8), vec!["hello ", "world ", "foo"]);
+        assert_eq!(w("abcdefghij", 8), vec!["abcdefgh", "ij"]);
+        assert_eq!(w("x abcdefghijk", 8), vec!["x ", "abcdefgh", "ijk"]);
+        assert_eq!(w("abcdefgh", 8), vec!["abcdefgh"]);
+    }
+
+    #[test]
+    fn wrap_preserves_whitespace() {
+        // Leading indentation, whitespace-only lines, runs of spaces.
+        assert_eq!(w("    foo", 20), vec!["    foo"]);
+        assert_eq!(w("   ", 8), vec!["   "]);
+        assert_eq!(w("a  b", 8), vec!["a  b"]);
+        assert_eq!(w("a\n\nb", 8), vec!["a", "", "b"]);
+    }
+
+    #[test]
+    fn wrap_normalizes_tabs_and_crs() {
+        assert_eq!(w("a\tb", 20), vec!["a    b"]);
+        assert_eq!(w("line\r", 20), vec!["line"]);
+        assert_eq!(w("\r", 20), vec![""]);
+    }
+
+    #[test]
+    fn wrap_zero_cols_no_spurious_line() {
+        assert_eq!(w("ab", 0), vec!["a", "b"]);
+        assert_eq!(w("a", 0), vec!["a"]);
+    }
+
+    #[test]
+    fn wrap_segments_concat_to_source() {
+        // Copy reconstruction relies on segments of one source line
+        // concatenating back to it verbatim (modulo tab/CR normalization).
+        for s in [
+            "The quick brown fox jumps over the lazy dog",
+            "  indented continuation of a long wrapped paragraph",
+            "supercalifragilisticexpialidocious tail",
+            "a b c d e f g h i j k l m n o p",
+            "word",
+            " ",
+        ] {
+            for cols in 1..14 {
+                assert_eq!(w(s, cols).concat(), s, "cols={}", cols);
+            }
+        }
+    }
 }

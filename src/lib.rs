@@ -121,13 +121,29 @@ pub fn web_resize(_w_px: f32, _h_px: f32) {
     });
 }
 
+/// Re-derive the UI scale after a devicePixelRatio change (browser zoom,
+/// monitor move); glyphs re-rasterize at the new size on the next frame.
+#[wasm_bindgen]
+pub fn web_set_font_px(font_px: f32) {
+    with_host(|h| {
+        h.view.scale = font_px / 15.0;
+        h.app.dirty = true;
+        h.view.needs_frame = true;
+    });
+}
+
 /// Returns true when the key was consumed (host should preventDefault).
 #[wasm_bindgen]
 pub fn web_key(key: &str, ctrl: bool, alt: bool, shift: bool) -> bool {
     // Ctrl/Cmd+C copies the active selection (agent transcript or editor)
     // to the system clipboard; falls through when nothing is selected.
+    // With an overlay open neither selection is visible — copying it
+    // would silently grab text from underneath, so don't.
     if ctrl && (key == "c" || key == "C") {
         let copied = with_host(|h| {
+            if h.app.overlay.is_some() {
+                return false;
+            }
             let text = if h.app.route == Route::Agent {
                 h.view.agent_selection_text()
             } else {
@@ -153,16 +169,28 @@ pub fn web_key(key: &str, ctrl: bool, alt: bool, shift: bool) -> bool {
         return false;
     };
     with_host(|h| {
-        h.app.on_event(ev);
+        let used = h.app.on_event(ev);
         h.view.needs_frame = true;
-    });
-    true
+        used
+    })
+    .unwrap_or(false)
 }
 
 fn copy_to_clipboard(text: &str) {
     let Some(w) = web_sys::window() else { return };
-    // Fire-and-forget; the promise resolves off the event loop.
-    let _ = w.navigator().clipboard().write_text(text);
+    let promise = w.navigator().clipboard().write_text(text);
+    // The eager "copied" toast is replaced if the promise rejects —
+    // a dropped promise would let the toast lie about failures.
+    wasm_bindgen_futures::spawn_local(async move {
+        if wasm_bindgen_futures::JsFuture::from(promise).await.is_err() {
+            with_host(|h| {
+                h.app.toast = Some(("copy failed".into(), true));
+                h.app.dirty = true;
+                h.view.needs_frame = true;
+            });
+            host_wake();
+        }
+    });
 }
 
 #[wasm_bindgen]

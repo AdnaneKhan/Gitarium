@@ -76,6 +76,30 @@ impl Atlas {
             .unwrap_or(0.0)
     }
 
+    /// Pen x offset of every char boundary in a run (`chars + 1` entries),
+    /// advancing exactly as `DrawList::text` does: the fallback-rasterized
+    /// glyph's advance when one exists, kerning between pairs, and tracking
+    /// after each glyph. Used to hit-test text the way it was drawn.
+    pub fn char_xs(&mut self, font: u8, px: f32, s: &str, tracking: f32) -> Vec<f32> {
+        let mut xs = Vec::with_capacity(s.chars().count() + 1);
+        let mut pen = 0.0f32;
+        let mut prev: Option<char> = None;
+        for ch in s.chars() {
+            if let Some(p) = prev {
+                pen += self.kern(font, px, p, ch);
+            }
+            xs.push(pen);
+            let adv = match self.glyph(font, px, ch) {
+                Some(g) => g.advance,
+                None => self.advance(font, px, ch),
+            };
+            pen += adv + tracking;
+            prev = Some(ch);
+        }
+        xs.push(pen);
+        xs
+    }
+
     pub fn glyph(&mut self, font: u8, px: f32, ch: char) -> Option<Glyph> {
         let key = (font, size_key(px), ch);
         if let Some(g) = self.cache.get(&key) {

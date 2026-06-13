@@ -252,35 +252,92 @@ fn split_pipes(s: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-/// Pull `>`, `>>`, `<` (with or without an attached filename) out of an
-/// argument list.
+/// Split a pipeline segment into raw words at unquoted whitespace, keeping
+/// quotes and escapes intact so redirect detection can still see them.
+/// Mirrors shlex's lexing rules (whitespace set, word-start `#` comments)
+/// so that `unquote` later yields exactly one token per word.
+fn raw_words(s: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let (mut sq, mut dq, mut esc, mut comment) = (false, false, false, false);
+    for ch in s.chars() {
+        if comment {
+            comment = ch != '\n';
+            continue;
+        }
+        if esc {
+            cur.push(ch);
+            esc = false;
+            continue;
+        }
+        match ch {
+            '\\' if !sq => {
+                cur.push(ch);
+                esc = true;
+            }
+            '\'' if !dq => {
+                sq = !sq;
+                cur.push(ch);
+            }
+            '"' if !sq => {
+                dq = !dq;
+                cur.push(ch);
+            }
+            '#' if !sq && !dq && cur.is_empty() => comment = true,
+            ' ' | '\t' | '\n' if !sq && !dq => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            _ => cur.push(ch),
+        }
+    }
+    if sq || dq || esc {
+        return Err("unbalanced quotes".into());
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    Ok(out)
+}
+
+/// Strip one raw word's quoting and escapes (shlex semantics).
+fn unquote(word: &str) -> Result<String, String> {
+    let toks = shlex::split(word).ok_or("unbalanced quotes")?;
+    Ok(toks.into_iter().next().unwrap_or_default())
+}
+
+/// Pull `>`, `>>`, `<` (with or without an attached filename) out of a raw
+/// command segment. Operators are located before quote removal — a word can
+/// only start at unquoted whitespace, so a word-initial `>`/`<` is a genuine
+/// operator, while quoted or escaped ones (`">"`, `'>'`, `\>`, `a">"b`) stay
+/// ordinary argument text.
 type Redirects = (Vec<String>, Option<String>, Option<(String, bool)>);
-fn extract_redirects(toks: Vec<String>) -> Result<Redirects, String> {
+fn extract_redirects(seg: &str) -> Result<Redirects, String> {
+    let words = raw_words(seg)?;
     let mut args = Vec::new();
     let mut rin: Option<String> = None;
     let mut rout: Option<(String, bool)> = None;
     let mut i = 0;
-    while i < toks.len() {
-        let t = &toks[i];
-        let (op, rest) = if t == ">>" || t == ">" || t == "<" {
-            (t.as_str(), "")
-        } else if let Some(r) = t.strip_prefix(">>") {
+    while i < words.len() {
+        let w = words[i].as_str();
+        let (op, rest) = if let Some(r) = w.strip_prefix(">>") {
             (">>", r)
-        } else if t.len() > 1 && t.starts_with('>') {
-            (">", &t[1..])
-        } else if t.len() > 1 && t.starts_with('<') {
-            ("<", &t[1..])
+        } else if let Some(r) = w.strip_prefix('>') {
+            (">", r)
+        } else if let Some(r) = w.strip_prefix('<') {
+            ("<", r)
         } else {
-            args.push(t.clone());
+            args.push(unquote(w)?);
             i += 1;
             continue;
         };
-        let target = if rest.is_empty() {
+        let target = unquote(if rest.is_empty() {
             i += 1;
-            toks.get(i).cloned().ok_or(format!("'{}' needs a file", op))?
+            words.get(i).map(String::as_str).ok_or(format!("'{}' needs a file", op))?
         } else {
-            rest.to_string()
-        };
+            rest
+        })?;
         match op {
             "<" => rin = Some(target),
             ">" => rout = Some((target, false)),
@@ -296,8 +353,7 @@ fn run_pipeline(cmd: &str) -> Result<String, String> {
     let n = segs.len();
     let mut stdin = String::new();
     for (i, seg) in segs.iter().enumerate() {
-        let toks = shlex::split(seg).ok_or("unbalanced quotes")?;
-        let (mut args, rin, rout) = extract_redirects(toks)?;
+        let (mut args, rin, rout) = extract_redirects(seg)?;
         if let Some(p) = rin {
             if i != 0 {
                 return Err("'<' is only allowed on the first command".into());
@@ -353,6 +409,16 @@ fn input(files: &[String], stdin: &str) -> Result<String, String> {
         out.push_str(&read_file(f)?);
     }
     Ok(out)
+}
+
+/// Component-aware prefix test: `dir` covers itself and the paths beneath
+/// it (`/r1` covers `/r1` and `/r1/x`, but not `/r1.json` or `/r10.json`).
+fn under_dir(path: &str, dir: &str) -> bool {
+    dir == "/"
+        || path
+            .strip_prefix(dir)
+            .map(|rest| rest.is_empty() || rest.starts_with('/'))
+            .unwrap_or(false)
 }
 
 fn exec_cmd(name: &str, args: &[String], stdin: &str) -> Result<String, String> {
@@ -493,7 +559,7 @@ fn grep(args: &[String], stdin: &str) -> Result<String, String> {
     if recursive {
         let prefix = vfs::norm(files.first().map(String::as_str).unwrap_or("/"));
         for (path, _) in vfs::list() {
-            if path.starts_with(&prefix) || prefix == "/" {
+            if under_dir(&path, &prefix) {
                 if let Some(body) = vfs::read(&path) {
                     sources.push((Some(path), body));
                 }
@@ -603,7 +669,7 @@ fn uniq(args: &[String], stdin: &str) -> Result<String, String> {
     let mut out = String::new();
     let mut last: Option<&str> = None;
     let mut count = 0usize;
-    let mut flush = |line: Option<&str>, count: usize, out: &mut String| {
+    let flush = |line: Option<&str>, count: usize, out: &mut String| {
         if let Some(l) = line {
             if counted {
                 out.push_str(&format!("{:>4} {}\n", count, l));
@@ -712,7 +778,7 @@ fn find(args: &[String]) -> Result<String, String> {
     };
     let mut out = String::new();
     for (path, _) in vfs::list() {
-        if !(path.starts_with(&root) || root == "/") {
+        if !under_dir(&path, &root) {
             continue;
         }
         let name = path.rsplit('/').next().unwrap_or(&path);
@@ -918,5 +984,74 @@ mod tests {
         assert_eq!(out, "/r1.json\n");
         let (out, _) = run("echo 'b\na\nb' | sort | uniq -c | sort -rn | head -1 | cut -d b -f1");
         assert!(out.trim().starts_with('2'), "{}", out);
+    }
+
+    #[test]
+    fn quoted_redirects_are_literal() {
+        vfs::clear();
+        // Quoted operators are data, not redirects.
+        let (out, ok) = run(r#"echo ">""#);
+        assert!(ok, "{}", out);
+        assert_eq!(out, ">\n");
+        let (out, ok) = run("echo '>' '>>' '<'");
+        assert!(ok, "{}", out);
+        assert_eq!(out, "> >> <\n");
+        // Backslash-escaped operators stay literal too.
+        let (out, ok) = run(r"echo \> x");
+        assert!(ok, "{}", out);
+        assert_eq!(out, "> x\n");
+        // Quoted '>' mid-word, double- and single-quoted.
+        let (out, ok) = run(r#"echo a">"b c'>'d"#);
+        assert!(ok, "{}", out);
+        assert_eq!(out, "a>b c>d\n");
+        // grep for a literal '>' (the motivating case).
+        vfs::write("/h.txt", "a -> b\nplain\n".into());
+        let (out, ok) = run(r#"grep ">" /h.txt"#);
+        assert!(ok, "{}", out);
+        assert_eq!(out, "a -> b\n");
+        // None of the commands above wrote a file.
+        assert_eq!(vfs::list().len(), 1, "{:?}", vfs::list());
+    }
+
+    #[test]
+    fn unquoted_redirects_still_work() {
+        vfs::clear();
+        // Separate-word and glued-to-filename forms.
+        let (out, ok) = run("echo a >/g.txt; echo b >> /g.txt; cat /g.txt");
+        assert!(ok, "{}", out);
+        assert_eq!(out, "a\nb\n");
+        // Glued input redirect; quoted filename target.
+        let (out, ok) = run("cat </g.txt | wc -l; echo c > \"/q file.txt\"; cat '/q file.txt'");
+        assert!(ok, "{}", out);
+        assert_eq!(out, "2\nc\n");
+        // Multiple output redirects: the last one wins (as before).
+        let (out, ok) = run("echo x > /a.txt > /b.txt; cat /b.txt");
+        assert!(ok, "{}", out);
+        assert_eq!(out, "x\n");
+        assert!(!vfs::exists("/a.txt"));
+    }
+
+    #[test]
+    fn recursive_prefix_is_component_aware() {
+        vfs::clear();
+        vfs::write("/r1.json", "needle\n".into());
+        vfs::write("/r10.json", "needle\n".into());
+        vfs::write("/r1/sub.txt", "needle\n".into());
+        // /r1 covers /r1/… only — not /r1.json or /r10.json.
+        let (out, ok) = run("grep -r -n needle /r1");
+        assert!(ok, "{}", out);
+        assert_eq!(out, "/r1/sub.txt:1:needle\n");
+        // A file path still matches itself.
+        let (out, ok) = run("grep -r needle /r1.json");
+        assert!(ok, "{}", out);
+        assert_eq!(out, "/r1.json:needle\n");
+        // find honours the same component rule.
+        let (out, ok) = run("find /r1 -name '*'");
+        assert!(ok, "{}", out);
+        assert_eq!(out, "/r1/sub.txt\n");
+        // …and so does the structured grep tool.
+        let (out, ok) = super::tool_grep("needle", Some("/r1"), false);
+        assert!(ok, "{}", out);
+        assert_eq!(out, "/r1/sub.txt:1:needle\n");
     }
 }

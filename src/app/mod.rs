@@ -3,6 +3,7 @@
 
 pub mod editor;
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 use crate::github::{self, Branch, Job, Repo, Run, TreeEntry};
@@ -102,6 +103,9 @@ pub enum ConfirmAction {
     LeaveRepo,
     SwitchBranch(String),
     OpenFile(String),
+    /// An async `RepoOpened` landed while the current file had unsaved
+    /// edits; opening the fetched repo needs the usual confirm.
+    OpenRepo(Repo),
 }
 
 /// Mouse hit-regions, rebuilt on every draw.
@@ -182,6 +186,10 @@ pub struct OpenFile {
     pub size: u64,
     pub editing: bool,
     pub committing: bool,
+    /// Exact text sent with an in-flight commit; on success `modified` is
+    /// cleared only if the buffer still matches (edits typed while the
+    /// commit was in flight must survive).
+    pub pending_commit: Option<String>,
 }
 
 pub struct RepoView {
@@ -266,6 +274,9 @@ pub struct AgentChat {
     pub rev: u64,
     /// Transcript indices of Tool items awaiting results.
     pub pending: Vec<usize>,
+    /// Consecutive `pause_turn` resends, capped so a misbehaving server
+    /// can't loop the turn forever.
+    pub pause_count: u32,
 }
 
 impl AgentChat {
@@ -281,6 +292,7 @@ impl AgentChat {
             gen: 0,
             rev: 0,
             pending: Vec::new(),
+            pause_count: 0,
         }
     }
 
@@ -297,9 +309,12 @@ pub enum Msg {
     },
     Repos {
         source: RepoSource,
-        result: Result<Vec<Repo>, String>,
+        result: Result<github::RepoList, String>,
     },
-    RepoOpened(Result<Repo, String>),
+    RepoOpened {
+        name: String,
+        result: Result<Repo, String>,
+    },
     Branches {
         repo: String,
         result: Result<Vec<Branch>, String>,
@@ -310,10 +325,13 @@ pub enum Msg {
     },
     FileLoaded {
         repo: String,
+        branch: String,
         path: String,
         result: Result<(String, Vec<u8>), String>,
     },
     Committed {
+        repo: String,
+        branch: String,
         path: String,
         // (new content sha, new commit sha)
         result: Result<(String, String), String>,
@@ -329,6 +347,7 @@ pub enum Msg {
     },
     CodeSearchDone {
         repo: String,
+        query: String,
         result: Result<Vec<github::CodeHit>, String>,
     },
     /// One Messages API response in the agent loop.
@@ -341,6 +360,13 @@ pub enum Msg {
         gen: u64,
         results: Vec<(serde_json::Value, bool)>,
     },
+}
+
+thread_local! {
+    /// Mirror of `AgentChat::gen` readable from detached futures: a cancel
+    /// bumps it, and the sequential tool batch re-checks it between
+    /// executions so mutating calls stop instead of outliving the cancel.
+    static LIVE_GEN: Cell<u64> = const { Cell::new(0) };
 }
 
 pub struct App {
@@ -366,6 +392,9 @@ pub struct App {
     pub rv: Option<RepoView>,
     pub overlay: Option<Overlay>,
     pub toast: Option<(String, bool)>,
+    /// Owner/name of the repo an async open (OpenRepo overlay) is fetching;
+    /// a `RepoOpened` for anything else is stale and dropped.
+    pub opening_repo: Option<String>,
 
     pub anthropic_key: Option<String>,
     pub anthropic_url: Option<String>,
@@ -402,6 +431,7 @@ impl App {
             rv: None,
             overlay: None,
             toast: None,
+            opening_repo: None,
             anthropic_key: crate::agent::load_key(),
             anthropic_url: crate::agent::load_url(),
             agent: AgentChat::new(),
@@ -436,14 +466,14 @@ impl App {
                 crate::spawn_msg(async move {
                     Msg::Repos {
                         source: RepoSource::Mine,
-                        result: github::list_repos(&token).await,
+                        result: github::list_repos_full(&token).await,
                     }
                 });
             }
             RepoSource::Org(name) => {
                 self.repos = Loadable::Loading;
                 crate::spawn_msg(async move {
-                    let result = github::list_owner_repos(&token, &name).await;
+                    let result = github::list_owner_repos_full(&token, &name).await;
                     Msg::Repos { source: RepoSource::Org(name), result }
                 });
             }
@@ -516,6 +546,8 @@ impl App {
     }
 
     fn open_repo(&mut self, repo: Repo) {
+        // Supersedes any async open still in flight.
+        self.opening_repo = None;
         let full = repo.full_name.clone();
         self.rv = Some(RepoView::new(repo));
         self.route = Route::Repo;
@@ -600,7 +632,7 @@ impl App {
                 Ok((cf.sha, bytes))
             }
             .await;
-            Msg::FileLoaded { repo: full.clone(), path, result }
+            Msg::FileLoaded { repo: full.clone(), branch, path, result }
         });
     }
 
@@ -613,7 +645,9 @@ impl App {
         let path = file.path.clone();
         let branch = rv.branch.clone();
         let sha = file.sha.clone();
-        let content = github::b64_encode(file.editor.to_text().as_bytes());
+        let text = file.editor.to_text();
+        file.pending_commit = Some(text.clone());
+        let content = github::b64_encode(text.as_bytes());
         crate::spawn_msg(async move {
             let result: Result<(String, String), String> = async {
                 let resp =
@@ -624,7 +658,7 @@ impl App {
                 Ok((csha, ksha))
             }
             .await;
-            Msg::Committed { path, result }
+            Msg::Committed { repo: full, branch, path, result }
         });
         self.toast = Some(("committing…".into(), false));
     }
@@ -654,7 +688,13 @@ impl App {
 
     /// Fire one Messages API request for the current history.
     fn agent_turn(&mut self) {
-        let Some(key) = self.anthropic_key.clone() else { return };
+        let Some(key) = self.anthropic_key.clone() else {
+            // Latent path (callers check the key) — but silently returning
+            // here would leave busy=true forever.
+            self.agent.busy = false;
+            self.agent.push(AgentItem::Error("no API key configured".into()));
+            return;
+        };
         let repo_ctx = self
             .rv
             .as_ref()
@@ -687,16 +727,17 @@ impl App {
         }
         self.agent.input.clear();
         self.agent.push(AgentItem::User(text.clone()));
-        self.agent
-            .history
-            .push(serde_json::json!({"role": "user", "content": text}));
+        push_user_text(&mut self.agent.history, &text);
         self.agent.busy = true;
         self.agent.gen += 1;
+        LIVE_GEN.with(|g| g.set(self.agent.gen));
+        self.agent.pause_count = 0;
         self.agent_turn();
     }
 
     fn agent_cancel(&mut self) {
         self.agent.gen += 1; // orphan any in-flight future
+        LIVE_GEN.with(|g| g.set(self.agent.gen));
         self.agent.busy = false;
         for &i in &self.agent.pending {
             if let Some(AgentItem::Tool { done, .. }) = self.agent.transcript.get_mut(i) {
@@ -704,24 +745,36 @@ impl App {
             }
         }
         self.agent.pending.clear();
-        // Keep the history valid for the next send: a trailing assistant
-        // message with unanswered tool_use blocks would be rejected.
-        let dangling = self
-            .agent
-            .history
-            .last()
-            .map(|m| {
-                m["role"] == "assistant"
-                    && m["content"]
-                        .as_array()
-                        .map(|c| c.iter().any(|b| b["type"] == "tool_use"))
-                        .unwrap_or(false)
-            })
-            .unwrap_or(false);
-        if dangling {
+        self.sanitize_history_tail();
+        self.agent.push(AgentItem::Error("cancelled".into()));
+    }
+
+    /// Leave `history` in a shape the Messages API accepts on the next
+    /// send: the final message must not be an assistant turn with
+    /// unanswered tool_use blocks, and content must stay non-empty. Text
+    /// the model produced is kept (the transcript shows it, so the model
+    /// should remember it); tool_use blocks that will never get results
+    /// are stripped. Every terminal path (cancel, error, refusal,
+    /// max_tokens) funnels through here.
+    fn sanitize_history_tail(&mut self) {
+        let Some(last) = self.agent.history.last_mut() else { return };
+        if last["role"] != "assistant" {
+            return;
+        }
+        let Some(blocks) = last["content"].as_array_mut() else {
+            self.agent.history.pop();
+            return;
+        };
+        blocks.retain(|b| b["type"] != "tool_use");
+        // Thinking-only (or empty) remainders are dropped whole: the API
+        // rejects assistant turns without displayable content.
+        let keeps_text = blocks.iter().any(|b| {
+            b["type"] == "text"
+                && b["text"].as_str().map(|t| !t.trim().is_empty()).unwrap_or(false)
+        });
+        if !keeps_text {
             self.agent.history.pop();
         }
-        self.agent.push(AgentItem::Error("cancelled".into()));
     }
 
     fn agent_clear(&mut self) {
@@ -756,15 +809,26 @@ impl App {
             Ok(r) => r,
             Err(e) => {
                 self.agent.busy = false;
+                // A pause_turn resend that failed leaves a trailing
+                // assistant message; make the history sendable again.
+                self.sanitize_history_tail();
                 self.agent.push(AgentItem::Error(e));
                 return;
             }
         };
         let content = resp["content"].clone();
         let stop = resp["stop_reason"].as_str().unwrap_or("").to_string();
-        self.agent
-            .history
-            .push(serde_json::json!({"role": "assistant", "content": content}));
+        if stop != "pause_turn" {
+            self.agent.pause_count = 0;
+        }
+        // An empty content array (pre-output refusal) must not enter the
+        // history — the API rejects empty assistant turns on later sends.
+        let has_content = content.as_array().map(|a| !a.is_empty()).unwrap_or(false);
+        if has_content {
+            self.agent
+                .history
+                .push(serde_json::json!({"role": "assistant", "content": content}));
+        }
         if let Some(blocks) = content.as_array() {
             for b in blocks {
                 if b["type"] == "text" {
@@ -781,6 +845,7 @@ impl App {
                 let calls = crate::agent::parse_tool_calls(&content);
                 if calls.is_empty() {
                     self.agent.busy = false;
+                    self.sanitize_history_tail();
                     return;
                 }
                 self.agent.pending.clear();
@@ -793,6 +858,11 @@ impl App {
                 crate::spawn_msg(async move {
                     let mut results = Vec::with_capacity(calls.len());
                     for c in &calls {
+                        // A cancel orphans the results; it must also stop
+                        // the remaining (possibly mutating) executions.
+                        if LIVE_GEN.with(|g| g.get()) != gen {
+                            break;
+                        }
                         let (text, ok) = crate::agent::exec(&token, c).await;
                         results.push((crate::agent::tool_result_block(c.id(), &text, ok), ok));
                     }
@@ -801,9 +871,20 @@ impl App {
             }
             // Server-side pause (defensive — no server tools configured):
             // re-send and the API resumes where it left off.
-            "pause_turn" => self.agent_turn(),
+            "pause_turn" => {
+                self.agent.pause_count += 1;
+                if self.agent.pause_count > 8 {
+                    self.agent.busy = false;
+                    self.agent.pause_count = 0;
+                    self.sanitize_history_tail();
+                    self.agent.push(AgentItem::Error("server kept pausing the turn".into()));
+                } else {
+                    self.agent_turn();
+                }
+            }
             "refusal" => {
                 self.agent.busy = false;
+                self.sanitize_history_tail();
                 let cat = resp["stop_details"]["category"].as_str().unwrap_or("");
                 let msg = if cat.is_empty() {
                     "request declined by the model".to_string()
@@ -814,10 +895,16 @@ impl App {
             }
             "max_tokens" => {
                 self.agent.busy = false;
+                // The cut can land mid-tool-call; without sanitizing, every
+                // later send would 400 on the unanswered tool_use.
+                self.sanitize_history_tail();
                 self.agent
                     .push(AgentItem::Error("response hit the token limit — say 'continue'".into()));
             }
-            _ => self.agent.busy = false, // end_turn
+            _ => {
+                self.agent.busy = false; // end_turn
+                self.sanitize_history_tail();
+            }
         }
     }
 
@@ -848,16 +935,59 @@ impl App {
                     return; // stale response from a previous source
                 }
                 self.repos = match result {
-                    Ok(r) => Loadable::Ready(r),
+                    Ok(list) => {
+                        // Partial success (mid-pagination failure, page cap)
+                        // must be visible, not a silently shorter list.
+                        match &list.truncated {
+                            Some(github::Truncation::Error(e)) => {
+                                self.toast =
+                                    Some((format!("repo list incomplete: {}", e), true));
+                            }
+                            Some(github::Truncation::MaxPages) => {
+                                self.toast = Some((
+                                    "repo list truncated (10,000 repo cap)".into(),
+                                    true,
+                                ));
+                            }
+                            None => {}
+                        }
+                        Loadable::Ready(list.repos)
+                    }
                     Err(e) => Loadable::Failed(e),
                 };
                 self.repo_sel = 0;
                 self.repo_scroll = 0;
             }
-            Msg::RepoOpened(result) => match result {
-                Ok(repo) => self.open_repo(repo),
-                Err(e) => self.toast = Some((e, true)),
-            },
+            Msg::RepoOpened { name, result } => {
+                // Only the most recent async open may act; anything else is
+                // a stale response the user has navigated away from.
+                if self.opening_repo.as_deref() != Some(name.as_str()) {
+                    return;
+                }
+                self.opening_repo = None;
+                match result {
+                    Ok(repo) => {
+                        let modified = self
+                            .rv
+                            .as_ref()
+                            .and_then(|rv| rv.file.as_ref())
+                            .map(|f| f.editor.modified)
+                            .unwrap_or(false);
+                        if modified {
+                            self.overlay = Some(Overlay::Confirm {
+                                msg: format!(
+                                    "discard unsaved edits and open {}?",
+                                    repo.full_name
+                                ),
+                                action: ConfirmAction::OpenRepo(repo),
+                            });
+                        } else {
+                            self.open_repo(repo);
+                        }
+                    }
+                    Err(e) => self.toast = Some((e, true)),
+                }
+            }
             Msg::Branches { repo, result } => {
                 let current = self.rv.as_ref().map(|rv| rv.repo.full_name.clone());
                 if current.as_deref() != Some(repo.as_str()) {
@@ -900,9 +1030,15 @@ impl App {
                     Err(e) => rv.tree = Loadable::Failed(e),
                 }
             }
-            Msg::FileLoaded { repo, path, result } => {
+            Msg::FileLoaded { repo, branch, path, result } => {
                 let Some(rv) = &mut self.rv else { return };
-                if rv.repo.full_name != repo || rv.file_loading.as_deref() != Some(path.as_str()) {
+                // The branch guard stops an old-branch response from winning
+                // the race after a switch + reopen of the same path (commits
+                // would then target the wrong base sha).
+                if rv.repo.full_name != repo
+                    || rv.branch != branch
+                    || rv.file_loading.as_deref() != Some(path.as_str())
+                {
                     return;
                 }
                 rv.file_loading = None;
@@ -936,6 +1072,7 @@ impl App {
                             size,
                             editing: false,
                             committing: false,
+                            pending_commit: None,
                         };
                         rehighlight(&mut file);
                         rv.file = Some(file);
@@ -943,30 +1080,55 @@ impl App {
                     Err(e) => self.toast = Some((e, true)),
                 }
             }
-            Msg::Committed { path, result } => {
+            Msg::Committed { repo, branch, path, result } => {
+                // The toast is always shown (the user should hear about a
+                // failed commit even after navigating), but state is only
+                // mutated when repo, branch and path all still match —
+                // a stale result must not touch another view's sha/head.
+                let fresh = self
+                    .rv
+                    .as_ref()
+                    .map(|rv| rv.repo.full_name == repo && rv.branch == branch)
+                    .unwrap_or(false);
+                match &result {
+                    Ok((_, commit_sha)) => {
+                        let short: String = commit_sha.chars().take(7).collect();
+                        self.toast = Some((format!("committed {} ✓", short), false));
+                    }
+                    Err(e) => self.toast = Some((format!("commit failed: {}", e), true)),
+                }
+                if !fresh {
+                    return;
+                }
                 let Some(rv) = &mut self.rv else { return };
-                let branch = rv.branch.clone();
                 let Some(file) = &mut rv.file else { return };
                 if file.path != path {
                     return;
                 }
                 file.committing = false;
-                match result {
-                    Ok((content_sha, commit_sha)) => {
-                        file.sha = content_sha;
-                        file.editor.modified = false;
-                        // Keep the branch head fresh so tree reloads work.
-                        if let Loadable::Ready(branches) = &mut rv.branches {
-                            if let Some(b) = branches.iter_mut().find(|b| b.name == branch) {
-                                if !commit_sha.is_empty() {
-                                    b.commit.sha = commit_sha.clone();
-                                }
+                let sent = file.pending_commit.take();
+                if let Ok((content_sha, commit_sha)) = result {
+                    file.sha = content_sha;
+                    // Edits typed while the commit was in flight must stay
+                    // marked dirty; only an unchanged buffer becomes clean.
+                    // (`sent` is None when the file object was reloaded
+                    // since — nothing to compare, leave `modified` alone.)
+                    match sent {
+                        Some(s) if s == file.editor.to_text() => file.editor.modified = false,
+                        Some(_) => {
+                            self.toast =
+                                Some(("committed ✓ — buffer has newer edits".into(), false));
+                        }
+                        None => {}
+                    }
+                    // Keep the branch head fresh so tree reloads work.
+                    if let Loadable::Ready(branches) = &mut rv.branches {
+                        if let Some(b) = branches.iter_mut().find(|b| b.name == branch) {
+                            if !commit_sha.is_empty() {
+                                b.commit.sha = commit_sha.clone();
                             }
                         }
-                        let short: String = commit_sha.chars().take(7).collect();
-                        self.toast = Some((format!("committed {} ✓", short), false));
                     }
-                    Err(e) => self.toast = Some((format!("commit failed: {}", e), true)),
                 }
             }
             Msg::Runs { repo, result } => {
@@ -1019,12 +1181,19 @@ impl App {
                     .push(serde_json::json!({"role": "user", "content": blocks}));
                 self.agent_turn();
             }
-            Msg::CodeSearchDone { repo, result } => {
+            Msg::CodeSearchDone { repo, query, result } => {
                 let current = self.rv.as_ref().map(|rv| rv.repo.full_name.clone());
                 if current.as_deref() != Some(repo.as_str()) {
                     return;
                 }
-                if let Some(Overlay::CodeSearch { results, sel, .. }) = &mut self.overlay {
+                // `searched` guard: a reopened overlay (or a newer query)
+                // must not be populated by an older search's results.
+                if let Some(Overlay::CodeSearch { results, sel, searched, .. }) =
+                    &mut self.overlay
+                {
+                    if *searched != query {
+                        return;
+                    }
                     *results = match result {
                         Ok(h) => Loadable::Ready(h),
                         Err(e) => Loadable::Failed(e),
@@ -1039,14 +1208,15 @@ impl App {
     // Events
     // -----------------------------------------------------------------------
 
-    pub fn on_event(&mut self, ev: Event) {
+    /// Returns true when the event was consumed (the host uses this for
+    /// preventDefault — unconsumed keys keep their browser behavior).
+    pub fn on_event(&mut self, ev: Event) -> bool {
         self.dirty = true;
         match ev {
             Event::Key(key, mods) => {
                 self.toast = None;
                 if self.overlay.is_some() {
-                    self.overlay_key(key, mods);
-                    return;
+                    return self.overlay_key(key, mods);
                 }
                 match self.route {
                     Route::Auth => self.auth_key(key, mods),
@@ -1066,9 +1236,9 @@ impl App {
             .unwrap_or(false)
     }
 
-    fn auth_key(&mut self, key: Key, mods: Mods) {
+    fn auth_key(&mut self, key: Key, mods: Mods) -> bool {
         if self.auth_busy {
-            return;
+            return false;
         }
         match key {
             Key::Enter => {
@@ -1083,51 +1253,60 @@ impl App {
                 } else {
                     self.validate_token(t);
                 }
+                true
             }
-            k => {
-                self.token_input.handle_key(&k, mods);
-            }
+            k => self.token_input.handle_key(&k, mods),
         }
     }
 
-    fn repos_key(&mut self, key: Key, mods: Mods) {
+    fn repos_key(&mut self, key: Key, mods: Mods) -> bool {
         if self.filter_active {
-            match key {
+            return match key {
                 Key::Esc => {
                     self.filter.clear();
                     self.filter_active = false;
+                    true
                 }
-                Key::Enter => self.filter_active = false,
+                Key::Enter => {
+                    self.filter_active = false;
+                    true
+                }
                 Key::Up | Key::Down => {
                     self.filter_active = false;
-                    self.repos_key(key, mods);
+                    self.repos_key(key, mods)
                 }
                 k => {
-                    if self.filter.handle_key(&k, mods) {
+                    let used = self.filter.handle_key(&k, mods);
+                    if used {
                         self.repo_sel = 0;
                         self.repo_scroll = 0;
                     }
+                    used
                 }
-            }
-            return;
+            };
         }
         let count = self.filtered_repos().len();
         match key {
-            Key::Char('?') => self.overlay = Some(Overlay::Help),
-            Key::Char('/') => self.filter_active = true,
-            Key::Char('i') => self.open_agent(),
-            Key::Char('o') => self.overlay = Some(Overlay::OpenRepo(LineInput::new(false))),
-            Key::Char('r') => self.load_repos(),
-            Key::Char('f') => {
+            // Char bindings are plain-key only: with Ctrl/Alt (or Cmd, which
+            // the host maps to ctrl) held they fall through unconsumed so
+            // browser shortcuts keep working.
+            Key::Char('?') if plain(mods) => self.overlay = Some(Overlay::Help),
+            Key::Char('/') if plain(mods) => self.filter_active = true,
+            Key::Char('i') if plain(mods) => self.open_agent(),
+            Key::Char('o') if plain(mods) => {
+                self.overlay = Some(Overlay::OpenRepo(LineInput::new(false)))
+            }
+            Key::Char('r') if plain(mods) => self.load_repos(),
+            Key::Char('f') if plain(mods) => {
                 self.hide_forks = !self.hide_forks;
                 self.repo_sel = 0;
             }
-            Key::Char('x') => {
+            Key::Char('x') if plain(mods) => {
                 self.hide_archived = !self.hide_archived;
                 self.repo_sel = 0;
             }
-            Key::Char('s') => self.cycle_sort(),
-            Key::Char('S') => {
+            Key::Char('s') if plain(mods) => self.cycle_sort(),
+            Key::Char('S') if plain(mods) => {
                 self.sort_asc = !self.sort_asc;
                 self.repo_sel = 0;
             }
@@ -1139,6 +1318,8 @@ impl App {
                     self.repo_scroll = 0;
                     self.filter.clear();
                     self.load_repos();
+                } else {
+                    return false;
                 }
             }
             // 2D navigation over the card grid.
@@ -1176,22 +1357,27 @@ impl App {
                     }
                 }
             }
-            _ => {}
+            _ => return false,
         }
+        true
     }
 
-    fn agent_key(&mut self, key: Key, mods: Mods) {
+    fn agent_key(&mut self, key: Key, mods: Mods) -> bool {
         // No API key yet: the window shows the key/endpoint prompt.
         if self.anthropic_key.is_none() {
-            match key {
-                Key::Esc => self.leave_agent(),
+            return match key {
+                Key::Esc => {
+                    self.leave_agent();
+                    true
+                }
                 Key::Tab | Key::BackTab | Key::Up | Key::Down => {
                     self.agent.url_focused = !self.agent.url_focused;
+                    true
                 }
                 Key::Enter => {
                     let k = self.agent.key_input.text.trim().to_string();
                     if k.is_empty() {
-                        return;
+                        return true;
                     }
                     let url = crate::agent::normalize_base(&self.agent.url_input.text);
                     match &url {
@@ -1204,16 +1390,16 @@ impl App {
                     self.agent.key_input.clear();
                     self.agent.url_input.clear();
                     self.agent.url_focused = false;
+                    true
                 }
                 k => {
                     if self.agent.url_focused {
-                        self.agent.url_input.handle_key(&k, mods);
+                        self.agent.url_input.handle_key(&k, mods)
                     } else {
-                        self.agent.key_input.handle_key(&k, mods);
+                        self.agent.key_input.handle_key(&k, mods)
                     }
                 }
-            }
-            return;
+            };
         }
         match key {
             Key::Esc => {
@@ -1222,31 +1408,33 @@ impl App {
                 } else {
                     self.leave_agent();
                 }
+                true
             }
-            Key::Enter => self.agent_send(),
-            k => {
-                self.agent.input.handle_key(&k, mods);
+            Key::Enter => {
+                self.agent_send();
+                true
             }
+            k => self.agent.input.handle_key(&k, mods),
         }
     }
 
-    fn repo_key(&mut self, key: Key, mods: Mods) {
-        let Some(rv) = &mut self.rv else { return };
+    fn repo_key(&mut self, key: Key, mods: Mods) -> bool {
+        let Some(rv) = &mut self.rv else { return false };
         match rv.tab {
             Tab::Code => self.code_key(key, mods),
-            Tab::Actions => self.actions_key(key),
+            Tab::Actions => self.actions_key(key, mods),
         }
     }
 
-    fn code_key(&mut self, key: Key, mods: Mods) {
+    fn code_key(&mut self, key: Key, mods: Mods) -> bool {
         let in_editor = self.in_editor();
-        let rv = self.rv.as_mut().unwrap();
+        let Some(rv) = self.rv.as_mut() else { return false };
 
         // Editor consumes nearly everything while editing.
         if in_editor {
             if key == Key::Char('s') && mods.ctrl {
                 self.begin_commit();
-                return;
+                return true;
             }
             if key == Key::Esc {
                 if let Some(f) = &mut rv.file {
@@ -1257,7 +1445,7 @@ impl App {
                             Some(("buffer modified — press c to commit".into(), false));
                     }
                 }
-                return;
+                return true;
             }
             let lay = self.layout;
             if let Some(f) = &mut rv.file {
@@ -1273,16 +1461,20 @@ impl App {
                     );
                     rehighlight(f);
                 }
+                // Plain keys belong to the editor even when they change
+                // nothing (arrow at a boundary); modified combos it didn't
+                // act on stay with the browser.
+                return changed || plain(mods);
             }
-            return;
+            return false;
         }
 
         match key {
-            Key::Char('?') => self.overlay = Some(Overlay::Help),
-            Key::Char('/') => {
+            Key::Char('?') if plain(mods) => self.overlay = Some(Overlay::Help),
+            Key::Char('/') if plain(mods) => {
                 self.overlay = Some(Overlay::FileSearch { input: LineInput::new(false), sel: 0 });
             }
-            Key::Char('g') => {
+            Key::Char('g') if plain(mods) => {
                 if self.token.is_none() {
                     self.toast = Some(("code search requires an access token".into(), true));
                 } else {
@@ -1294,7 +1486,7 @@ impl App {
                     });
                 }
             }
-            Key::Char('b') => {
+            Key::Char('b') if plain(mods) => {
                 if rv.branches.ready().is_some() {
                     let sel = rv
                         .branches
@@ -1305,15 +1497,15 @@ impl App {
                     self.overlay = Some(Overlay::BranchPick { sel, scroll: sel.saturating_sub(3) });
                 }
             }
-            Key::Char('a') => {
+            Key::Char('a') if plain(mods) => {
                 rv.tab = Tab::Actions;
                 if matches!(rv.runs, Loadable::Idle) {
                     self.load_runs();
                 }
             }
-            Key::Char('e') => self.begin_edit(),
-            Key::Char('c') => self.begin_commit(),
-            Key::Char('i') => self.open_agent(),
+            Key::Char('e') if plain(mods) => self.begin_edit(),
+            Key::Char('c') if plain(mods) => self.begin_commit(),
+            Key::Char('i') if plain(mods) => self.open_agent(),
             Key::Tab => {
                 rv.focus = match rv.focus {
                     RepoFocus::Tree if rv.file.is_some() => RepoFocus::Content,
@@ -1323,7 +1515,7 @@ impl App {
             Key::Esc => {
                 if rv.focus == RepoFocus::Content {
                     rv.focus = RepoFocus::Tree;
-                    return;
+                    return true;
                 }
                 let modified = rv
                     .file
@@ -1340,15 +1532,18 @@ impl App {
                     self.rv = None;
                 }
             }
-            _ => match rv.focus {
-                RepoFocus::Tree => self.tree_key(key),
-                RepoFocus::Content => self.viewer_key(key),
-            },
+            _ => {
+                return match rv.focus {
+                    RepoFocus::Tree => self.tree_key(key),
+                    RepoFocus::Content => self.viewer_key(key),
+                }
+            }
         }
+        true
     }
 
-    fn tree_key(&mut self, key: Key) {
-        let rv = self.rv.as_mut().unwrap();
+    fn tree_key(&mut self, key: Key) -> bool {
+        let Some(rv) = self.rv.as_mut() else { return false };
         let count = rv.rows.len();
         match key {
             Key::Up => rv.tree_sel = rv.tree_sel.saturating_sub(1),
@@ -1369,7 +1564,7 @@ impl App {
                 self.activate_tree_row(key == Key::Right);
             }
             Key::Left => {
-                let Some(row) = rv.rows.get(rv.tree_sel) else { return };
+                let Some(row) = rv.rows.get(rv.tree_sel) else { return false };
                 if row.is_dir && rv.expanded.contains(&row.path) {
                     let p = row.path.clone();
                     rv.expanded.remove(&p);
@@ -1380,12 +1575,13 @@ impl App {
                     }
                 }
             }
-            _ => {}
+            _ => return false,
         }
+        true
     }
 
     fn activate_tree_row(&mut self, expand_only: bool) {
-        let rv = self.rv.as_mut().unwrap();
+        let Some(rv) = self.rv.as_mut() else { return };
         let Some(row) = rv.rows.get(rv.tree_sel) else { return };
         if row.is_dir {
             let p = row.path.clone();
@@ -1411,10 +1607,10 @@ impl App {
         }
     }
 
-    fn viewer_key(&mut self, key: Key) {
+    fn viewer_key(&mut self, key: Key) -> bool {
         let lay = self.layout;
-        let rv = self.rv.as_mut().unwrap();
-        let Some(f) = &mut rv.file else { return };
+        let Some(rv) = self.rv.as_mut() else { return false };
+        let Some(f) = &mut rv.file else { return false };
         let h = lay.content_text.h.max(1) as usize;
         match key {
             Key::Up => f.editor.scroll_by(-1, h),
@@ -1423,18 +1619,20 @@ impl App {
             Key::PageDown => f.editor.scroll_by(h as i32, h),
             Key::Home => f.editor.scroll = 0,
             Key::End => f.editor.scroll = f.editor.line_count().saturating_sub(h),
-            _ => {}
+            _ => return false,
         }
+        true
     }
 
-    fn actions_key(&mut self, key: Key) {
-        let rv = self.rv.as_mut().unwrap();
+    fn actions_key(&mut self, key: Key, mods: Mods) -> bool {
+        let Some(rv) = self.rv.as_mut() else { return false };
         let count = rv.runs.ready().map(|r| r.len()).unwrap_or(0);
         match key {
-            Key::Char('?') => self.overlay = Some(Overlay::Help),
-            Key::Char('a') | Key::Esc => rv.tab = Tab::Code,
-            Key::Char('i') => self.open_agent(),
-            Key::Char('r') => self.load_runs(),
+            Key::Char('?') if plain(mods) => self.overlay = Some(Overlay::Help),
+            Key::Char('a') if plain(mods) => rv.tab = Tab::Code,
+            Key::Esc => rv.tab = Tab::Code,
+            Key::Char('i') if plain(mods) => self.open_agent(),
+            Key::Char('r') if plain(mods) => self.load_runs(),
             Key::Up => rv.runs_sel = rv.runs_sel.saturating_sub(1),
             Key::Down => {
                 if count > 0 {
@@ -1455,13 +1653,14 @@ impl App {
                     }
                 }
             }
-            _ => {}
+            _ => return false,
         }
+        true
     }
 
     fn begin_edit(&mut self) {
         let anonymous = self.token.is_none();
-        let rv = self.rv.as_mut().unwrap();
+        let Some(rv) = self.rv.as_mut() else { return };
         if let Some(f) = &mut rv.file {
             if f.binary {
                 self.toast = Some(("cannot edit a binary file".into(), true));
@@ -1480,7 +1679,7 @@ impl App {
     }
 
     fn begin_commit(&mut self) {
-        let rv = self.rv.as_mut().unwrap();
+        let Some(rv) = self.rv.as_mut() else { return };
         let Some(f) = &rv.file else { return };
         if f.committing {
             return;
@@ -1496,29 +1695,38 @@ impl App {
     // Overlays
     // -----------------------------------------------------------------------
 
-    fn overlay_key(&mut self, key: Key, mods: Mods) {
-        let Some(overlay) = &mut self.overlay else { return };
+    fn overlay_key(&mut self, key: Key, mods: Mods) -> bool {
+        let Some(overlay) = &mut self.overlay else { return false };
         match overlay {
             Overlay::Help => {
                 self.overlay = None;
+                true
             }
             Overlay::Commit(input) => match key {
-                Key::Esc => self.overlay = None,
+                Key::Esc => {
+                    self.overlay = None;
+                    true
+                }
                 Key::Enter => {
                     let msg = input.text.trim().to_string();
                     if msg.is_empty() {
-                        return;
+                        return true;
                     }
                     self.overlay = None;
                     self.commit_file(msg);
+                    true
                 }
-                k => {
-                    input.handle_key(&k, mods);
-                }
+                k => input.handle_key(&k, mods),
             },
             Overlay::FileSearch { input, sel } => match key {
-                Key::Esc => self.overlay = None,
-                Key::Up => *sel = sel.saturating_sub(1),
+                Key::Esc => {
+                    self.overlay = None;
+                    true
+                }
+                Key::Up => {
+                    *sel = sel.saturating_sub(1);
+                    true
+                }
                 Key::Down => {
                     let count = self
                         .rv
@@ -1529,6 +1737,7 @@ impl App {
                     if count > 0 {
                         *sel = (*sel + 1).min(count - 1);
                     }
+                    true
                 }
                 Key::Enter => {
                     let path = self.rv.as_ref().and_then(|rv| rv.tree.ready()).and_then(|t| {
@@ -1551,26 +1760,36 @@ impl App {
                             self.open_file(path);
                         }
                     }
+                    true
                 }
                 k => {
-                    if input.handle_key(&k, mods) {
+                    let used = input.handle_key(&k, mods);
+                    if used {
                         *sel = 0;
                     }
+                    used
                 }
             },
             Overlay::CodeSearch { input, sel, searched, results } => match key {
-                Key::Esc => self.overlay = None,
-                Key::Up => *sel = sel.saturating_sub(1),
+                Key::Esc => {
+                    self.overlay = None;
+                    true
+                }
+                Key::Up => {
+                    *sel = sel.saturating_sub(1);
+                    true
+                }
                 Key::Down => {
                     let count = results.ready().map(|h| h.len()).unwrap_or(0);
                     if count > 0 {
                         *sel = (*sel + 1).min(count - 1);
                     }
+                    true
                 }
                 Key::Enter => {
                     let q = input.text.trim().to_string();
                     if q.is_empty() {
-                        return;
+                        return true;
                     }
                     if q != *searched {
                         // Submit (explicitly — code search is 10 req/min).
@@ -1585,7 +1804,7 @@ impl App {
                             .unwrap_or_default();
                         crate::spawn_msg(async move {
                             let result = github::search_code(&token, &full, &q).await;
-                            Msg::CodeSearchDone { repo: full, result }
+                            Msg::CodeSearchDone { repo: full, query: q, result }
                         });
                     } else if let Loadable::Ready(hits) = results {
                         let path = hits.get(*sel).map(|h| h.path.clone());
@@ -1607,33 +1826,36 @@ impl App {
                             }
                         }
                     }
+                    true
                 }
-                k => {
-                    input.handle_key(&k, mods);
-                }
+                k => input.handle_key(&k, mods),
             },
             Overlay::OpenRepo(input) => match key {
-                Key::Esc => self.overlay = None,
+                Key::Esc => {
+                    self.overlay = None;
+                    true
+                }
                 Key::Enter => {
                     let name = input.text.trim().trim_matches('/').to_string();
                     if name.is_empty() {
-                        return;
+                        return true;
                     }
                     self.overlay = None;
                     if name.contains('/') {
                         self.toast = Some((format!("opening {}…", name), false));
+                        self.opening_repo = Some(name.clone());
                         let token = self.token.clone();
                         crate::spawn_msg(async move {
-                            Msg::RepoOpened(github::get_repo(&token, &name).await)
+                            let result = github::get_repo(&token, &name).await;
+                            Msg::RepoOpened { name, result }
                         });
                     } else {
                         // Bare name: browse that organization (or user).
                         self.open_org(name);
                     }
+                    true
                 }
-                k => {
-                    input.handle_key(&k, mods);
-                }
+                k => input.handle_key(&k, mods),
             },
             Overlay::BranchPick { sel, scroll } => {
                 let count = self
@@ -1643,12 +1865,16 @@ impl App {
                     .unwrap_or(0);
                 let view_h = self.layout.overlay_h.max(1);
                 match key {
-                    Key::Esc => self.overlay = None,
+                    Key::Esc => {
+                        self.overlay = None;
+                        true
+                    }
                     Key::Up => {
                         *sel = sel.saturating_sub(1);
                         if *sel < *scroll {
                             *scroll = *sel;
                         }
+                        true
                     }
                     Key::Down => {
                         if count > 0 {
@@ -1657,6 +1883,7 @@ impl App {
                         if *sel >= *scroll + view_h {
                             *scroll = *sel + 1 - view_h;
                         }
+                        true
                     }
                     Key::Enter => {
                         let pick = self.rv.as_ref().and_then(|rv| {
@@ -1676,7 +1903,7 @@ impl App {
                                 .map(|rv| rv.branch == name)
                                 .unwrap_or(true);
                             if same {
-                                return;
+                                return true;
                             }
                             if modified {
                                 self.overlay = Some(Overlay::Confirm {
@@ -1687,14 +1914,15 @@ impl App {
                                 self.switch_branch(name);
                             }
                         }
+                        true
                     }
-                    _ => {}
+                    _ => false,
                 }
             }
             Overlay::Confirm { action, .. } => {
                 let action = action.clone();
                 match key {
-                    Key::Enter | Key::Char('y') => {
+                    Key::Enter | Key::Char('y') if plain(mods) => {
                         self.overlay = None;
                         match action {
                             ConfirmAction::LeaveRepo => {
@@ -1703,35 +1931,48 @@ impl App {
                             }
                             ConfirmAction::SwitchBranch(name) => self.switch_branch(name),
                             ConfirmAction::OpenFile(path) => self.open_file(path),
+                            ConfirmAction::OpenRepo(repo) => self.open_repo(repo),
                         }
+                        true
                     }
-                    Key::Esc | Key::Char('n') => self.overlay = None,
-                    _ => {}
+                    Key::Esc | Key::Char('n') if plain(mods) => {
+                        self.overlay = None;
+                        true
+                    }
+                    _ => false,
                 }
             }
         }
     }
 
-    fn on_paste(&mut self, text: String) {
+    fn on_paste(&mut self, text: String) -> bool {
         match &mut self.overlay {
             Some(Overlay::Commit(input)) | Some(Overlay::OpenRepo(input)) => {
                 input.insert(&text.replace('\n', " "));
-                return;
+                return true;
             }
             Some(Overlay::FileSearch { input, sel }) => {
                 input.insert(&text.replace('\n', " "));
                 *sel = 0;
-                return;
+                return true;
             }
             Some(Overlay::CodeSearch { input, .. }) => {
                 input.insert(&text.replace('\n', " "));
-                return;
+                return true;
             }
-            Some(_) => return,
+            Some(_) => return false,
             None => {}
         }
         match self.route {
-            Route::Auth => self.token_input.insert(text.trim()),
+            Route::Auth => {
+                // Same lock as typed keys: no mutating the token while a
+                // validation request is in flight.
+                if self.auth_busy {
+                    return false;
+                }
+                self.token_input.insert(text.trim());
+                true
+            }
             Route::Agent => {
                 if self.anthropic_key.is_none() {
                     if self.agent.url_focused {
@@ -1742,8 +1983,15 @@ impl App {
                 } else {
                     self.agent.input.insert(&text.replace('\n', " "));
                 }
+                true
             }
-            Route::Repos if self.filter_active => self.filter.insert(&text.replace('\n', " ")),
+            Route::Repos if self.filter_active => {
+                self.filter.insert(&text.replace('\n', " "));
+                // Pasted filter text resets selection like typed chars do.
+                self.repo_sel = 0;
+                self.repo_scroll = 0;
+                true
+            }
             Route::Repo => {
                 let lay = self.layout;
                 if self.in_editor() {
@@ -1755,11 +2003,13 @@ impl App {
                                 lay.content_text.w.max(1) as usize,
                             );
                             rehighlight(f);
+                            return true;
                         }
                     }
                 }
+                false
             }
-            _ => {}
+            _ => false,
         }
     }
 
@@ -1799,7 +2049,7 @@ impl App {
             Click::Run(i) => {
                 let Some(rv) = &mut self.rv else { return };
                 if rv.runs_sel == i {
-                    self.actions_key(Key::Enter);
+                    self.actions_key(Key::Enter, Mods::NONE);
                 } else {
                     rv.runs_sel = i;
                 }
@@ -1867,6 +2117,35 @@ impl App {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Append user text to the Messages history, merging into a trailing user
+/// message when one exists (cancel/error paths can leave the history ending
+/// on a tool_result turn; consecutive user messages are rejected by the
+/// API, while one message with tool_results followed by text is valid).
+fn push_user_text(history: &mut Vec<serde_json::Value>, text: &str) {
+    use serde_json::{json, Value};
+    if let Some(last) = history.last_mut() {
+        if last["role"] == "user" {
+            let block = json!({"type": "text", "text": text});
+            match &mut last["content"] {
+                Value::String(s) => {
+                    let prev = std::mem::take(s);
+                    last["content"] = json!([{"type": "text", "text": prev}, block]);
+                }
+                Value::Array(a) => a.push(block),
+                _ => {}
+            }
+            return;
+        }
+    }
+    history.push(json!({"role": "user", "content": text}));
+}
+
+/// A char binding fires only without Ctrl/Alt (Cmd arrives as ctrl from the
+/// host) so browser shortcuts are never shadowed by single-key bindings.
+fn plain(mods: Mods) -> bool {
+    !mods.ctrl && !mods.alt
+}
+
 /// Search blob paths in the fetched tree: case-insensitive, every
 /// whitespace-separated term must match, ranked by match position and path
 /// length so filename hits beat deep-path hits.
@@ -1924,6 +2203,7 @@ fn make_binary_file(path: String, sha: String, size: u64) -> OpenFile {
         size,
         editing: false,
         committing: false,
+        pending_commit: None,
     }
 }
 
