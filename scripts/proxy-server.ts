@@ -84,14 +84,15 @@ async function handle(ws: WS, raw: string, token?: string): Promise<void> {
   }
 }
 
-/** Audit a forwarded call as one sanitized log line: the method, the full
- * target URL, and the first 100 chars of the request body (if any). The
+/** Audit a forwarded call as one sanitized log line: an ISO-8601 UTC timestamp,
+ * the method, the full target URL, and the first 100 chars of the request body
+ * (if any). The timestamp leads so entries sort chronologically; the
  * Authorization header is never part of the entry; `clean` scrubs any token
  * that slips into the body or URL and flattens newlines, so each entry is
  * exactly one line and no secret reaches the log. */
 function audit(method: string, url: string, body?: string | null): void {
   const snippet = body && body.length > 0 ? " " + clean(body.slice(0, 100)) : "";
-  console.log(`[gitarium-proxy] ${method} ${clean(url)}${snippet}`);
+  console.log(`${new Date().toISOString()} [gitarium-proxy] ${method} ${clean(url)}${snippet}`);
 }
 
 /** Redact secret-looking substrings (GitHub PATs, bearer tokens) and collapse
