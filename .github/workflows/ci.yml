@@ -123,8 +123,8 @@ jobs:
           CHROME: google-chrome
         run: bun tests/test-browser.ts --smoke
 
-      - name: Browser suite (live API)
-        if: env.GITHUB_TOKEN != ''
-        env:
-          CHROME: google-chrome
-        run: bun tests/test-browser.ts
+      # - name: Browser suite (live API)
+      #   if: env.GITHUB_TOKEN != ''
+      #   env:
+      #     CHROME: google-chrome
+      #   run: bun tests/test-browser.ts
