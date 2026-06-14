@@ -87,6 +87,12 @@ pub enum Msg {
         job_id: u64,
         result: Result<String, String>,
     },
+    /// Outcome of deleting a workflow run (Actions tab).
+    RunDeleted {
+        repo: String,
+        run_id: u64,
+        result: Result<(), String>,
+    },
     /// The 100 most-recently-updated open issues for the Issues tab.
     IssuesLoaded {
         repo: String,

@@ -9,6 +9,28 @@ impl View {
     /// frame's tree hit-regions to resolve which row was clicked.
     pub fn on_context_menu(&mut self, app: &mut App, x: f32, y: f32) {
         self.needs_frame = true;
+        // Actions tab: right-click a workflow run → its context menu. The menu
+        // is only offered with write access (see open_run_menu), so a
+        // right-click elsewhere on the pane just dismisses any open menu.
+        if app.route == Route::Repo && app.rv.as_ref().map(|rv| rv.tab) == Some(Tab::Actions) {
+            let run_id = self
+                .clicks
+                .iter()
+                .rev()
+                .find(|(r, c)| r.contains(x, y) && matches!(c, Click::Run(_)))
+                .and_then(|(_, c)| if let Click::Run(i) = c { Some(*i) } else { None })
+                .and_then(|i| {
+                    app.rv
+                        .as_ref()
+                        .and_then(|rv| rv.runs.ready().and_then(|rs| rs.get(i)).map(|r| r.id))
+                });
+            if let Some(id) = run_id {
+                app.open_run_menu(x, y, id);
+            } else {
+                app.context_menu = None;
+            }
+            return;
+        }
         // The tree menu only applies to the Code tab of the Repo route;
         // elsewhere the tree isn't drawn this frame, so a stale tree_rect
         // (remembered from the last Code frame) would otherwise leak through.

@@ -224,6 +224,8 @@ pub enum MenuAction {
     DownloadDir(String),
     /// Download this single file as a one-entry `.tar.gz`.
     DownloadFile(String),
+    /// Delete a workflow run (Actions tab) by its database id.
+    DeleteRun(u64),
 }
 
 pub enum Overlay {
@@ -279,6 +281,8 @@ pub enum ConfirmAction {
     ApprovePr(u64),
     /// Merge the open PR with the given method ("merge"|"squash"|"rebase").
     MergePr { number: u64, method: String },
+    /// Delete a workflow run (Actions tab) from the given repo.
+    DeleteRun { repo: String, run_id: u64 },
 }
 
 /// Mouse hit-regions, rebuilt on every draw.

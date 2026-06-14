@@ -291,6 +291,7 @@ impl App {
                     }
                     ConfirmAction::ApprovePr(number) => self.do_approve(number),
                     ConfirmAction::MergePr { number, method } => self.do_merge(number, method),
+                    ConfirmAction::DeleteRun { repo, run_id } => self.do_delete_run(repo, run_id),
                 }
                 true
             }

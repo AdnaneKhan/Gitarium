@@ -14,7 +14,7 @@ mod search;
 mod tests;
 mod types;
 
-pub use actions::{get_job_logs, list_jobs, list_runs};
+pub use actions::{delete_workflow_run, get_job_logs, list_jobs, list_runs};
 pub use checks::{list_check_runs, list_reviews, CheckRun, Review};
 pub use content::{get_blob, get_branch, get_file, get_tree, list_branches, put_file, BRANCH_PER_PAGE};
 pub use gitdb::{
