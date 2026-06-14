@@ -30,5 +30,16 @@ fi
 echo "gitarium: Codespace detected — starting 'serve.ts --api-proxy' in background (port 8080)."
 echo "          logs:    tail -f $LOG"
 echo "          replace: run the 'serve-proxy' task"
-nohup bun scripts/serve.ts --api-proxy > "$LOG" 2>&1 &
-echo $! > "$PIDFILE"
+# Detach so the server survives the postStartCommand shell exiting — plain
+# `nohup &` can get reaped when the lifecycle command returns. setsid (Linux
+# util-linux, present in the codespace) puts it in its own session, the reliable
+# fix; nohup+disown is the fallback for hosts without setsid (e.g. macOS). Either
+# way the long-lived bun PID lands in the PID file for the manual task to stop.
+if command -v setsid >/dev/null 2>&1; then
+  setsid bash -c 'echo $$ > /tmp/gitarium-serve.pid; exec bun scripts/serve.ts --api-proxy' \
+    >"$LOG" 2>&1 </dev/null &
+else
+  nohup bun scripts/serve.ts --api-proxy >"$LOG" 2>&1 </dev/null &
+  echo $! > /tmp/gitarium-serve.pid
+fi
+disown 2>/dev/null || true
