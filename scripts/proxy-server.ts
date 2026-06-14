@@ -60,9 +60,13 @@ async function handle(ws: WS, raw: string, token?: string): Promise<void> {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
+  const method = req.method ?? "GET";
+  const url = GITHUB + req.path;
+  audit(method, url, req.body);
+
   try {
-    const resp = await fetch(GITHUB + req.path, {
-      method: req.method ?? "GET",
+    const resp = await fetch(url, {
+      method,
       headers,
       body: req.body ?? undefined,
     });
@@ -78,6 +82,26 @@ async function handle(ws: WS, raw: string, token?: string): Promise<void> {
   } catch (e) {
     ws.send(JSON.stringify({ id, status: 0, error: String(e) }));
   }
+}
+
+/** Audit a forwarded call as one sanitized log line: the method, the full
+ * target URL, and the first 100 chars of the request body (if any). The
+ * Authorization header is never part of the entry; `clean` scrubs any token
+ * that slips into the body or URL and flattens newlines, so each entry is
+ * exactly one line and no secret reaches the log. */
+function audit(method: string, url: string, body?: string | null): void {
+  const snippet = body && body.length > 0 ? " " + clean(body.slice(0, 100)) : "";
+  console.log(`[gitarium-proxy] ${method} ${clean(url)}${snippet}`);
+}
+
+/** Redact secret-looking substrings (GitHub PATs, bearer tokens) and collapse
+ * runs of whitespace into single spaces so a value can't break the log line. */
+export function clean(s: string): string {
+  return s
+    .replace(/gh[pousr]_[A-Za-z0-9]{16,}/g, "[REDACTED]")
+    .replace(/github_pat_[A-Za-z0-9_]{16,}/g, "[REDACTED]")
+    .replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, "$1[REDACTED]")
+    .replace(/[\r\n\t]+/g, " ");
 }
 
 function numHeader(resp: Response, name: string): number | undefined {

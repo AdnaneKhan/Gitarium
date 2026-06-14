@@ -12,18 +12,21 @@
 # paths that `strings gitarium_bg.wasm` used to dump are gone, and the binary is
 # a touch smaller.
 #
-# Requires the nightly toolchain + rust-src (the script adds rust-src if it is
-# missing). Stable `wasm-pack build --target web` still works for dev; use this
-# for anything you actually ship.
+# Needs the nightly toolchain + rust-src; the script installs both if either is
+# missing (so it self-bootstraps on a host that only has stable Rust — e.g. a
+# fresh codespace). Stable `wasm-pack build --target web` still works for dev;
+# use this for anything you actually ship.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 TOOLCHAIN="${GITARIUM_NIGHTLY:-nightly}"
 
+# Self-bootstrap: install the toolchain if missing (and rust-src alongside it)
+# so this works on a host that only has stable Rust, such as a fresh codespace.
 if ! rustup run "$TOOLCHAIN" rustc --version >/dev/null 2>&1; then
-  echo "error: '$TOOLCHAIN' toolchain not installed — run: rustup toolchain install nightly" >&2
-  exit 1
+  echo "• installing $TOOLCHAIN toolchain (needed for the hardened std rebuild)…"
+  rustup toolchain install "$TOOLCHAIN" --profile minimal --component rust-src
 fi
 if ! rustup component list --toolchain "$TOOLCHAIN" --installed 2>/dev/null | grep -q '^rust-src'; then
   echo "• adding rust-src to $TOOLCHAIN (needed to rebuild std)…"
