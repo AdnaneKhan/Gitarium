@@ -75,6 +75,23 @@ impl App {
         self.context_menu = Some(ContextMenu { x, y, items });
     }
 
+    /// Open the Actions-tab context menu for a workflow run, anchored at
+    /// (`x`, `y`). Only offered with write access (deleting needs it);
+    /// otherwise nothing opens. Called by the renderer on a right-click.
+    pub fn open_run_menu(&mut self, x: f32, y: f32, run_id: u64) {
+        if !self.can_edit_repo() {
+            return;
+        }
+        self.context_menu = Some(ContextMenu {
+            x,
+            y,
+            items: vec![MenuItem {
+                label: "Delete Run".into(),
+                action: MenuAction::DeleteRun(run_id),
+            }],
+        });
+    }
+
     /// Run the menu item at `index` (resolved against the open menu) and close.
     /// Called by the renderer when a menu item is clicked.
     pub fn menu_action_at(&mut self, index: usize) {
@@ -89,6 +106,7 @@ impl App {
             Some(MenuAction::Unstage(p)) => self.unstage(&p),
             Some(MenuAction::DownloadDir(p)) => self.download_folder(p),
             Some(MenuAction::DownloadFile(p)) => self.download_file(p),
+            Some(MenuAction::DeleteRun(id)) => self.request_delete_run(id),
             None => {}
         }
     }

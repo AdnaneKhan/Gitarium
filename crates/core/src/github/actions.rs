@@ -45,3 +45,25 @@ pub async fn get_job_logs(token: &Option<String>, full_name: &str, job_id: u64) 
     }
     Ok(b)
 }
+
+/// Delete a workflow run. Requires write access (the Actions `repo` scope);
+/// GitHub returns 204 No Content with an empty body, so — like the logs
+/// endpoint — we check the status range rather than parse JSON.
+pub async fn delete_workflow_run(
+    token: &Option<String>,
+    full_name: &str,
+    run_id: u64,
+) -> Result<(), String> {
+    let (s, b) = api(
+        "DELETE",
+        &format!("/repos/{}/actions/runs/{}", enc_path(full_name), run_id),
+        token,
+        None,
+    )
+    .await?;
+    if !(200..300).contains(&s) {
+        let msg: String = b.chars().take(160).collect();
+        return Err(format!("HTTP {}: {}", s, msg));
+    }
+    Ok(())
+}

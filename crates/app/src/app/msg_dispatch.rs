@@ -31,6 +31,7 @@ impl App {
             Msg::Runs { repo, result } => self.on_runs(repo, result),
             Msg::Jobs { repo, run_id, result } => self.on_jobs(repo, run_id, result),
             Msg::JobLogs { repo, job_id, result } => self.on_job_logs(repo, job_id, result),
+            Msg::RunDeleted { repo, run_id, result } => self.on_run_deleted(repo, run_id, result),
             Msg::IssuesLoaded { repo, result } => self.on_issues_loaded(repo, result),
             Msg::PullsLoaded { repo, result } => self.on_pulls_loaded(repo, result),
             Msg::Comments { repo, number, result } => self.on_comments(repo, number, result),
