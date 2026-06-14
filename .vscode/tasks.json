@@ -21,13 +21,25 @@
       "problemMatcher": []
     },
     {
-      // Interactive foreground serve (proxy mode) — use this to watch logs or
-      // restart. In a Codespace it first stops the background auto-serve started
-      // by postStartCommand (via its PID file) so there's no port clash; locally
-      // it just serves. Auto-serve itself is Codespace-only (see auto-serve.sh).
+      // Auto-start the proxy server in a dedicated FOREGROUND terminal whenever
+      // the workspace opens. Codespace-only — auto-serve.sh no-ops unless
+      // $CODESPACES=true. Living in a real integrated terminal (not a
+      // backgrounded lifecycle child) is what keeps it from being reaped.
+      "label": "auto-serve-codespace",
+      "type": "shell",
+      "command": "bash .devcontainer/auto-serve.sh",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "runOptions": { "runOn": "folderOpen", "instanceLimit": 1 }
+    },
+    {
+      // Interactive foreground serve (proxy mode). Run on demand; if the
+      // auto-serve terminal is already running, stop it (Ctrl+C / trash the
+      // terminal) first to free port 8080.
       "label": "serve-proxy",
       "type": "shell",
-      "command": "pid=$(cat /tmp/gitarium-serve.pid 2>/dev/null); [ -n \"$pid\" ] && kill \"$pid\" 2>/dev/null; rm -f /tmp/gitarium-serve.pid; bun scripts/serve.ts --api-proxy",
+      "command": "bun scripts/serve.ts --api-proxy",
       "isBackground": true,
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated" }
@@ -36,7 +48,7 @@
       // Same server, no proxy: the browser calls api.github.com directly.
       "label": "serve-direct",
       "type": "shell",
-      "command": "pid=$(cat /tmp/gitarium-serve.pid 2>/dev/null); [ -n \"$pid\" ] && kill \"$pid\" 2>/dev/null; rm -f /tmp/gitarium-serve.pid; bun scripts/serve.ts",
+      "command": "bun scripts/serve.ts",
       "isBackground": true,
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated" }

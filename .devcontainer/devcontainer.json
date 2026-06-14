@@ -31,13 +31,11 @@
   // immediately. (First create compiles all deps — a few minutes; cached after.)
   "postCreateCommand": "wasm-pack build --target web",
 
-  // Auto-serve in proxy mode, ONLY in a GitHub Codespace. postStartCommand runs
-  // solely inside a devcontainer (never in plain local VS Code), and the
-  // $CODESPACES guard in auto-serve.sh additionally skips local devcontainers.
-  // The server is backgrounded (postStart must return); logs stream to
-  // /tmp/gitarium-serve.log. Run the `serve-proxy` task for a foreground serve.
-  "postStartCommand": "bash .devcontainer/auto-serve.sh",
-
+  // The proxy server auto-starts in a dedicated FOREGROUND terminal via the
+  // `auto-serve-codespace` task (runOptions.runOn: folderOpen) in
+  // .vscode/tasks.json — Codespace-only (auto-serve.sh guards on $CODESPACES).
+  // A task-owned terminal process isn't reaped the way a backgrounded lifecycle
+  // child can be, so there is no postStartCommand here.
   "customizations": {
     "vscode": {
       "extensions": ["rust-lang.rust-analyzer", "oven.bun-vscode"]

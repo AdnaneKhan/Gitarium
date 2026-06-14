@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Auto-start the Gitarium demo in proxy mode — ONLY inside a GitHub Codespace.
+# Auto-start the Gitarium demo in proxy mode — ONLY inside a GitHub Codespace,
+# in the foreground of a dedicated VS Code terminal.
 #
-# Invoked from the devcontainer `postStartCommand`. That alone restricts it to
-# devcontainer environments (plain local VS Code never runs postStart), and the
-# `$CODESPACES` guard below additionally skips local devcontainers — so the
-# server starts exclusively in a Codespace. It is backgrounded because
-# postStartCommand must return; logs stream to /tmp/gitarium-serve.log and its
-# PID is recorded so the manual `serve-proxy` task can replace it cleanly.
+# Invoked by the `auto-serve-codespace` task in .vscode/tasks.json with
+# `runOptions.runOn: folderOpen`, so the server opens in its own terminal pane
+# whenever the codespace opens. Running in a real integrated terminal (rather
+# than a backgrounded postStartCommand child) is what keeps it alive: the
+# terminal system owns the process, so it isn't reaped when the lifecycle hook
+# returns. The $CODESPACES guard makes this a no-op anywhere else.
 #
-# For an interactive foreground serve (live logs, easy restart) run the
-# `serve-proxy` task, or: bun scripts/serve.ts --api-proxy
+# For a non-Codespace serve, or to drop the proxy, run the `serve-proxy` /
+# `serve-direct` tasks (or `bun scripts/serve.ts [--api-proxy]`) directly.
 set -euo pipefail
 
-LOG=/tmp/gitarium-serve.log
-PIDFILE=/tmp/gitarium-serve.pid
+cd "$(dirname "$0")/.."
 
 if [ "${CODESPACES:-}" != "true" ]; then
   echo "gitarium: not a GitHub Codespace — skipping auto-serve."
@@ -21,25 +21,20 @@ if [ "${CODESPACES:-}" != "true" ]; then
   exit 0
 fi
 
-# postStartCommand can re-run (e.g. on rebuild); don't stack a second server.
-if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-  echo "gitarium: background serve already running (pid $(cat "$PIDFILE")) — leaving it."
-  exit 0
+# postCreateCommand builds the wasm; this task runs after, on paper — but wait
+# for the artifact in case they overlap, so the page doesn't 404 mid-build.
+WASM=pkg/gitarium_bg.wasm
+if [ ! -f "$WASM" ]; then
+  echo "gitarium: waiting for the wasm build to finish before serving…"
+  waited=0
+  until [ -f "$WASM" ] || [ "$waited" -ge 900 ]; do
+    sleep 10; waited=$((waited + 10))
+  done
+  if [ ! -f "$WASM" ]; then
+    echo "gitarium: wasm still missing after ~15 min — serving anyway; the page will 404 until 'wasm-pack build --target web' is run." >&2
+  fi
 fi
 
-echo "gitarium: Codespace detected — starting 'serve.ts --api-proxy' in background (port 8080)."
-echo "          logs:    tail -f $LOG"
-echo "          replace: run the 'serve-proxy' task"
-# Detach so the server survives the postStartCommand shell exiting — plain
-# `nohup &` can get reaped when the lifecycle command returns. setsid (Linux
-# util-linux, present in the codespace) puts it in its own session, the reliable
-# fix; nohup+disown is the fallback for hosts without setsid (e.g. macOS). Either
-# way the long-lived bun PID lands in the PID file for the manual task to stop.
-if command -v setsid >/dev/null 2>&1; then
-  setsid bash -c 'echo $$ > /tmp/gitarium-serve.pid; exec bun scripts/serve.ts --api-proxy' \
-    >"$LOG" 2>&1 </dev/null &
-else
-  nohup bun scripts/serve.ts --api-proxy >"$LOG" 2>&1 </dev/null &
-  echo $! > /tmp/gitarium-serve.pid
-fi
-disown 2>/dev/null || true
+echo "gitarium: serving 'serve.ts --api-proxy' in the foreground (port 8080)."
+echo "          logs stream here; Ctrl+C to stop."
+exec bun scripts/serve.ts --api-proxy

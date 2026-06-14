@@ -11,8 +11,9 @@ request is routed through the codespace instead of straight from the browser.
 - `bun`
 - Builds the browser wasm (`pkg/`) once on create
 - Forwards port **8080** and opens it in a browser tab
-- Auto-starts `bun scripts/serve.ts --api-proxy` in the background — **but only
-  inside a GitHub Codespace**, gated on the `$CODESPACES` env var (see
+- Auto-starts `bun scripts/serve.ts --api-proxy` in a dedicated **foreground
+  terminal** — **but only inside a GitHub Codespace**, via a `runOn: folderOpen`
+  task (`.vscode/tasks.json` → `auto-serve-codespace`, calling
   `.devcontainer/auto-serve.sh`). Local VS Code, with or without a devcontainer,
   stays silent
 
@@ -43,10 +44,10 @@ headless agent.
 
 ## Running it
 
-**In a Codespace** the server auto-starts in the background on container start
-(proxy mode). Tail its logs with `tail -f /tmp/gitarium-serve.log`, or run the
-`serve-proxy` task for an interactive foreground serve (it replaces the
-background one). Port 8080 forwards and opens automatically.
+**In a Codespace** the server auto-starts in its own **foreground terminal** when
+the workspace opens (the `auto-serve-codespace` task, proxy mode) — logs stream
+there live and Ctrl+C stops it. The first time, VS Code/Codespaces asks you to
+allow the automatic task (one-time). Port 8080 forwards and opens automatically.
 
 **Locally** nothing auto-starts — serve manually:
 
