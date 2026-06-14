@@ -4,12 +4,9 @@
 //! browser download — this crate has no DOM). Staged, uncommitted edits are
 //! not included: the archive mirrors the current branch's tree.
 
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
 use crate::{archive, github};
 
+use super::join::join_all;
 use super::{App, Msg};
 
 impl App {
@@ -34,9 +31,34 @@ impl App {
         // a whole-repo download keeps full repo-relative paths.
         let base = prefix.rsplit_once('/').map_or(0, |(p, _)| p.len() + 1);
         let name = archive_name(&rv.repo.full_name, &prefix);
+        self.pack(files, base, name);
+    }
+
+    /// Download one committed file as a single-entry `.tar.gz`. Same packaging
+    /// path as a folder download; the entry name is the file's basename.
+    pub(super) fn download_file(&mut self, path: String) {
+        let Some(rv) = self.rv.as_ref() else { return };
+        let Some(tree) = rv.tree.ready() else {
+            self.toast = Some(("tree still loading…".into(), true));
+            return;
+        };
+        let Some(entry) = tree.iter().find(|e| e.kind == "blob" && e.path == path) else {
+            self.toast = Some(("file not found in tree".into(), true));
+            return;
+        };
+        let basename = path.rsplit_once('/').map(|(_, n)| n.to_string()).unwrap_or(path);
+        let repo = rv.repo.full_name.replace('/', "-");
+        self.pack(vec![(basename.clone(), entry.sha.clone())], 0, format!("{}-{}.tar.gz", repo, basename));
+    }
+
+    /// Resolve `files`' bytes asynchronously and stage the built `.tar.gz` for
+    /// download. `base` strips a parent prefix so the selection is the root.
+    fn pack(&mut self, files: Vec<(String, String)>, base: usize, name: String) {
+        let Some(rv) = self.rv.as_ref() else { return };
         let token = self.token.clone();
         let full = rv.repo.full_name.clone();
-        self.toast = Some((format!("packaging {} file(s)…", files.len()), false));
+        let n = files.len();
+        self.toast = Some((format!("packaging {} file(s)…", n), false));
         crate::spawn_msg(async move {
             Msg::FolderArchive(full.clone(), name, build_targz(&token, &full, &files, base).await)
         });
@@ -130,48 +152,4 @@ async fn rest_fill(token: &Option<String>, full: &str, files: &[(String, String)
         }
     }
     Ok(())
-}
-
-/// Drive a set of futures concurrently to completion, returning their outputs
-/// in input order. Minimal stand-in for `futures::future::join_all` (no such
-/// dependency here); each poll advances every still-pending child. Bound the
-/// input size by the caller — this polls all entries it's given.
-fn join_all<F: Future>(futs: impl IntoIterator<Item = F>) -> JoinAll<F> {
-    let futs: Vec<_> = futs.into_iter().map(|f| Some(Box::pin(f))).collect();
-    let out = futs.iter().map(|_| None).collect();
-    JoinAll { futs, out }
-}
-
-struct JoinAll<F: Future> {
-    futs: Vec<Option<Pin<Box<F>>>>,
-    out: Vec<Option<F::Output>>,
-}
-
-// The futures are heap-pinned in `Box`es (never moved) and only finished
-// outputs are moved out, so JoinAll is safe to treat as Unpin for any `F`.
-impl<F: Future> Unpin for JoinAll<F> {}
-
-impl<F: Future> Future for JoinAll<F> {
-    type Output = Vec<F::Output>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let me = self.get_mut();
-        let mut pending = false;
-        for (slot, out) in me.futs.iter_mut().zip(me.out.iter_mut()) {
-            if let Some(fut) = slot {
-                match fut.as_mut().poll(cx) {
-                    Poll::Ready(v) => {
-                        *out = Some(v);
-                        *slot = None;
-                    }
-                    Poll::Pending => pending = true,
-                }
-            }
-        }
-        if pending {
-            Poll::Pending
-        } else {
-            Poll::Ready(me.out.iter_mut().map(|o| o.take().unwrap()).collect())
-        }
-    }
 }
