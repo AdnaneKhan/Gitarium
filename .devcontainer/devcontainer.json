@@ -1,0 +1,46 @@
+// Codespace / dev container for Gitarium. Opening this repo in a GitHub
+// Codespace builds the toolchain, builds the browser wasm once, then
+// auto-starts the demo server in proxy mode so every GitHub API call is
+// routed through the codespace. The auto-serve is Codespace-only — local
+// VS Code (with or without a devcontainer) stays silent. See auto-serve.sh.
+{
+  "name": "Gitarium",
+  "build": { "dockerfile": "Dockerfile" },
+
+  // The demo server (scripts/serve.ts) listens here. Codespaces forwards the
+  // port and opens it in a browser tab automatically.
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "Gitarium", "onAutoForward": "openBrowser" }
+  },
+
+  // Declare the secrets the app reads. Set them under Codespace secrets
+  // (https://github.com/settings/codespaces) — Codespaces prompts for them on
+  // first create. Both are optional.
+  "secrets": {
+    "GITHUB_TOKEN": "GitHub token the proxy uses server-side for ALL GitHub API traffic. If unset, the codespace's own token (if any) or the in-browser token is used.",
+    "ANTHROPIC_API_KEY": "Anthropic API key for the in-app and headless agent."
+  },
+  // Forward the injected secrets into terminals / tasks / the server process.
+  "remoteEnv": {
+    "GITHUB_TOKEN": "${containerEnv:GITHUB_TOKEN}",
+    "ANTHROPIC_API_KEY": "${containerEnv:ANTHROPIC_API_KEY}"
+  },
+
+  // Build the browser wasm once on create so the app is ready to serve
+  // immediately. (First create compiles all deps — a few minutes; cached after.)
+  "postCreateCommand": "wasm-pack build --target web",
+
+  // Auto-serve in proxy mode, ONLY in a GitHub Codespace. postStartCommand runs
+  // solely inside a devcontainer (never in plain local VS Code), and the
+  // $CODESPACES guard in auto-serve.sh additionally skips local devcontainers.
+  // The server is backgrounded (postStart must return); logs stream to
+  // /tmp/gitarium-serve.log. Run the `serve-proxy` task for a foreground serve.
+  "postStartCommand": "bash .devcontainer/auto-serve.sh",
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer", "oven.bun-vscode"]
+    }
+  }
+}

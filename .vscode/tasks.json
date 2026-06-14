@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build-web",
+      "type": "shell",
+      "command": "wasm-pack build --target web",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "build-headless",
+      "type": "shell",
+      "command": "wasm-pack build crates/headless --target web",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "build-single-file",
+      "type": "shell",
+      "command": "bun scripts/build-html.ts",
+      "problemMatcher": []
+    },
+    {
+      // Interactive foreground serve (proxy mode) — use this to watch logs or
+      // restart. In a Codespace it first stops the background auto-serve started
+      // by postStartCommand (via its PID file) so there's no port clash; locally
+      // it just serves. Auto-serve itself is Codespace-only (see auto-serve.sh).
+      "label": "serve-proxy",
+      "type": "shell",
+      "command": "pid=$(cat /tmp/gitarium-serve.pid 2>/dev/null); [ -n \"$pid\" ] && kill \"$pid\" 2>/dev/null; rm -f /tmp/gitarium-serve.pid; bun scripts/serve.ts --api-proxy",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      // Same server, no proxy: the browser calls api.github.com directly.
+      "label": "serve-direct",
+      "type": "shell",
+      "command": "pid=$(cat /tmp/gitarium-serve.pid 2>/dev/null); [ -n \"$pid\" ] && kill \"$pid\" 2>/dev/null; rm -f /tmp/gitarium-serve.pid; bun scripts/serve.ts",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    }
+  ]
+}
