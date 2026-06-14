@@ -23,6 +23,7 @@ mod issue_detail;
 mod issue_msgs;
 mod issue_search;
 mod issues;
+mod join;
 mod keys;
 mod menu;
 mod msg;

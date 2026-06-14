@@ -222,6 +222,8 @@ pub enum MenuAction {
     Unstage(String),
     /// Download this folder (empty = whole repo) as a `.tar.gz`.
     DownloadDir(String),
+    /// Download this single file as a one-entry `.tar.gz`.
+    DownloadFile(String),
 }
 
 pub enum Overlay {

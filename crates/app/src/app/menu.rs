@@ -18,18 +18,21 @@ impl App {
                     path.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default()
                 };
                 items.push(MenuItem { label: "New file…".into(), action: MenuAction::NewFile(dir) });
-                if is_dir {
-                    items.push(MenuItem {
-                        label: "Download as .tar.gz".into(),
-                        action: MenuAction::DownloadDir(path.clone()),
-                    });
-                }
+                // A folder packs its subtree; a single file packs just itself.
+                let dl = if is_dir {
+                    MenuAction::DownloadDir(path.clone())
+                } else {
+                    MenuAction::DownloadFile(path.clone())
+                };
+                items.push(MenuItem { label: "Download as .tar.gz".into(), action: dl });
                 if !is_dir {
                     let in_tree = rv
                         .tree
                         .ready()
                         .map(|t| t.iter().any(|e| e.path == path && e.kind == "blob"))
                         .unwrap_or(false);
+                    // Deleting stages a commit, which needs write access.
+                    let can_edit = self.can_edit_repo();
                     match rv.staged.get(&path) {
                         Some(Staged::Delete) => items.push(MenuItem {
                             label: "Unstage delete".into(),
@@ -40,17 +43,21 @@ impl App {
                                 label: "Unstage".into(),
                                 action: MenuAction::Unstage(path.clone()),
                             });
-                            if in_tree {
+                            if in_tree && can_edit {
                                 items.push(MenuItem {
                                     label: "Delete".into(),
                                     action: MenuAction::Delete(path.clone()),
                                 });
                             }
                         }
-                        None => items.push(MenuItem {
-                            label: "Delete".into(),
-                            action: MenuAction::Delete(path.clone()),
-                        }),
+                        None => {
+                            if can_edit {
+                                items.push(MenuItem {
+                                    label: "Delete".into(),
+                                    action: MenuAction::Delete(path.clone()),
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -81,6 +88,7 @@ impl App {
             Some(MenuAction::Delete(p)) => self.stage_delete(p),
             Some(MenuAction::Unstage(p)) => self.unstage(&p),
             Some(MenuAction::DownloadDir(p)) => self.download_folder(p),
+            Some(MenuAction::DownloadFile(p)) => self.download_file(p),
             None => {}
         }
     }

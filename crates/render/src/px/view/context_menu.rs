@@ -9,6 +9,13 @@ impl View {
     /// frame's tree hit-regions to resolve which row was clicked.
     pub fn on_context_menu(&mut self, app: &mut App, x: f32, y: f32) {
         self.needs_frame = true;
+        // The tree menu only applies to the Code tab of the Repo route;
+        // elsewhere the tree isn't drawn this frame, so a stale tree_rect
+        // (remembered from the last Code frame) would otherwise leak through.
+        if app.route != Route::Repo || app.rv.as_ref().map(|rv| rv.tab) != Some(Tab::Code) {
+            app.context_menu = None;
+            return;
+        }
         let row = self
             .clicks
             .iter()
