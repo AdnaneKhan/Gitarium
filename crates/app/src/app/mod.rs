@@ -35,6 +35,7 @@ mod repo_msgs;
 mod repos;
 mod run_actions;
 mod search;
+mod settings;
 mod staging;
 mod state;
 mod tree;
@@ -45,6 +46,7 @@ pub use issue_detail::{Detail, MergeMethod};
 pub use msg::Msg;
 pub use repo::RepoView;
 pub use search::search_tree;
+pub use settings::{visible_sections, ChipSel, SettingsField, SettingsForm, SettingsSection, SettingsView};
 pub use state::*;
 pub use tree::rebuild_rows;
 

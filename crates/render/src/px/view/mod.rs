@@ -5,9 +5,11 @@
 use std::collections::HashMap;
 
 use crate::app::run_icon;
+#[allow(unused_imports)]
 use crate::app::{
-    AgentItem, App, Click, CommitForm, CommitTarget, Detail, Loadable, Overlay, RepoFocus,
-    RepoSource, Route, Scroll, SearchScope, Staged, Tab,
+    AgentItem, App, Click, ChipSel, CommitForm, CommitTarget, Detail, Loadable, Overlay, RepoFocus,
+    RepoSource, Route, Scroll, SearchScope, SettingsField, SettingsForm, SettingsSection,
+    SettingsView, Staged, Tab, visible_sections,
 };
 use crate::highlight::{self, LineState};
 use crate::ui::grid::Rect as CellRect;
@@ -38,11 +40,14 @@ mod md;
 mod overlay_commit;
 mod overlay_grep;
 mod overlay_pick;
+mod overlay_settings;
 mod overlays;
 mod repo_card;
 mod repo_pane;
 mod repos_pane;
 mod scroll;
+mod settings_content;
+mod settings_pane;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -155,6 +160,8 @@ fn skey(s: Scroll) -> u8 {
         Scroll::Agent => 6,
         Scroll::Issues => 7, Scroll::Detail => 8,
         Scroll::DetailMeta => 9,
+        Scroll::SettingsNav => 10,
+        Scroll::SettingsList => 11,
     }
 }
 
@@ -174,6 +181,7 @@ const Z_FILE: u8 = 7;
 const Z_GREP: u8 = 8;
 const Z_MENU: u8 = 9;
 const Z_ISSUE: u8 = 10; const Z_DETAIL: u8 = 11;
+const Z_SET: u8 = 12;
 
 impl View {
     pub fn new(scale: f32) -> Self {

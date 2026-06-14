@@ -5,6 +5,7 @@
 //! `crate::vfs`, …), exactly as before the workspace split.
 
 pub mod archive;
+pub mod crypto;
 pub mod fetch;
 pub mod github;
 pub mod knowledge;

@@ -252,6 +252,7 @@ impl App {
             Key::Char('a') if plain(mods) => self.switch_tab(Tab::Actions),
             Key::Char('t') if plain(mods) => self.switch_tab(Tab::Issues),
             Key::Char('p') if plain(mods) => self.switch_tab(Tab::Pulls),
+            Key::Char(',') if plain(mods) => self.switch_tab(Tab::Settings),
             Key::Esc => self.switch_tab(Tab::Code),
             Key::Char('i') if plain(mods) => self.open_agent(),
             Key::Char('r') if plain(mods) => self.load_runs(),

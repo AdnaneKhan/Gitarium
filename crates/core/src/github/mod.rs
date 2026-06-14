@@ -13,6 +13,7 @@ mod search;
 #[cfg(test)]
 mod tests;
 mod types;
+mod settings;
 
 pub use actions::{delete_workflow_run, get_job_logs, list_jobs, list_runs};
 pub use checks::{list_check_runs, list_reviews, CheckRun, Review};
@@ -26,6 +27,7 @@ pub use issues::{list_comments, list_issues, Comment, Issue, Label};
 pub use pulls::{approve_pull, get_pull, list_pulls, merge_pull, Pull};
 pub use repos::{current_user, get_repo, repos_first_page, repos_page, RepoPage, MAX_PAGES};
 pub use search::{search_code, search_code_global, CodeHit, CodeMatch, CodeSearch, SEARCH_PER_PAGE};
+pub use settings::*;
 pub use types::*;
 
 use base64::engine::general_purpose::STANDARD as B64;

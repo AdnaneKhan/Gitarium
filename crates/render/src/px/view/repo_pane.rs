@@ -15,6 +15,7 @@ impl View {
         match tab {
             Tab::Code => self.code_tab(app, dl, atlas, w, top, bottom),
             Tab::Actions => self.actions_tab(app, dl, atlas, w, top, bottom),
+            Tab::Settings => self.settings_tab(app, dl, atlas, w, top, bottom),
             Tab::Issues | Tab::Pulls => {
                 if app.rv.as_ref().and_then(|rv| rv.detail.as_ref()).is_some() {
                     self.issue_detail(app, dl, atlas, w, top, bottom);

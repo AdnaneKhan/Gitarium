@@ -77,6 +77,20 @@ impl App {
             .unwrap_or(false)
     }
 
+    /// Whether the viewer is a repo admin. Gates admin-only Settings sections
+    /// (collaborators, webhooks, deploy keys, rulesets, …). Anonymous and
+    /// read/write viewers see fewer sections.
+    pub fn is_admin(&self) -> bool {
+        if self.login.is_none() {
+            return false;
+        }
+        self.rv
+            .as_ref()
+            .and_then(|rv| rv.repo.permissions.as_ref())
+            .map(|p| p.admin)
+            .unwrap_or(false)
+    }
+
     pub(super) fn begin_edit(&mut self) {
         if !self.can_edit_repo() {
             let msg = if self.login.is_none() {

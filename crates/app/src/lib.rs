@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 use wasm_bindgen::prelude::*;
 
 use gitarium_agent::agent;
-use gitarium_core::{archive, github, proxy, store};
+use gitarium_core::{archive, crypto, github, proxy, store};
 use gitarium_ui::{highlight, ui};
 
 pub mod app;

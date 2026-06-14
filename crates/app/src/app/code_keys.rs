@@ -22,6 +22,7 @@ impl App {
             Tab::Code => self.code_key(key, mods),
             Tab::Issues | Tab::Pulls => self.issues_key(key, mods),
             Tab::Actions => self.actions_key(key, mods),
+            Tab::Settings => self.settings_key(key, mods),
         }
     }
 
@@ -105,6 +106,7 @@ impl App {
             Key::Char('a') if plain(mods) => self.switch_tab(Tab::Actions),
             Key::Char('t') if plain(mods) => self.switch_tab(Tab::Issues),
             Key::Char('p') if plain(mods) => self.switch_tab(Tab::Pulls),
+            Key::Char(',') if plain(mods) => self.switch_tab(Tab::Settings),
             Key::Char('e') if plain(mods) => self.begin_edit(),
             Key::Char('s') if plain(mods) => self.stage_file_action(),
             Key::Char('n') if plain(mods) => self.begin_new_file(),

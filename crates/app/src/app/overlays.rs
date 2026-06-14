@@ -24,6 +24,7 @@ impl App {
             Some(Overlay::Confirm { .. }) => self.confirm_key(key, mods),
             Some(Overlay::FileSearch { .. }) => self.file_search_key(key, mods),
             Some(Overlay::CodeSearch { .. }) => self.code_search_key(key, mods),
+            Some(Overlay::SettingsForm(_)) => self.settings_form_key(key, mods),
         }
     }
 
@@ -292,6 +293,9 @@ impl App {
                     ConfirmAction::ApprovePr(number) => self.do_approve(number),
                     ConfirmAction::MergePr { number, method } => self.do_merge(number, method),
                     ConfirmAction::DeleteRun { repo, run_id } => self.do_delete_run(repo, run_id),
+                    ConfirmAction::DeleteSecret { repo, name } => self.do_delete_secret(repo, name),
+                    ConfirmAction::DeleteVariable { repo, name } => self.do_delete_variable(repo, name),
+                    ConfirmAction::DeleteDeployKey { repo, id } => self.do_delete_deploy_key(repo, id),
                 }
                 true
             }

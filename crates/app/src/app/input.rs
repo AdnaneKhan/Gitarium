@@ -251,6 +251,41 @@ impl App {
                 self.hide_archived = !self.hide_archived;
                 self.repo_sel = 0;
             }
+            Click::SettingsNav(i) => {
+                if let Some(&sec) = super::visible_sections(self.is_admin()).get(i) {
+                    self.switch_settings_section(sec);
+                }
+            }
+            Click::SettingsRow(i) => {
+                if let Some(rv) = &mut self.rv {
+                    rv.settings.list_sel = i;
+                }
+            }
+            Click::SettingsAdd => {
+                if let Some(s) = self.rv.as_ref().map(|rv| rv.settings.section) {
+                    self.open_section_create(s);
+                }
+            }
+            Click::SettingsEdit => {
+                if let Some(s) = self.rv.as_ref().map(|rv| rv.settings.section) {
+                    self.open_section_edit(s);
+                }
+            }
+            Click::SettingsDelete => {
+                if let Some(s) = self.rv.as_ref().map(|rv| rv.settings.section) {
+                    self.request_section_delete(s);
+                }
+            }
+            Click::SettingsCycleChip => {
+                if let Some(super::Overlay::SettingsForm(form)) = &mut self.overlay {
+                    if let Some(c) = &mut form.chip {
+                        let m = c.options.len();
+                        if m > 0 {
+                            c.sel = (c.sel + 1) % m;
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -10,6 +10,11 @@ crate-type = ["rlib"]
 serde = { workspace = true }
 serde_json = { workspace = true }
 base64 = { workspace = true }
+# NaCl sealed-box encryption for GitHub Actions secrets (libsodium-compatible
+# XSalsa20-Poly1305). `getrandom`'s `js` feature supplies the browser RNG that
+# crypto_box's OsRng needs on wasm32.
+crypto_box = { version = "0.9", features = ["seal"] }
+getrandom = { version = "0.2", features = ["js"] }
 jaq-core = { workspace = true }
 jaq-std = { workspace = true }
 jaq-json = { workspace = true }
