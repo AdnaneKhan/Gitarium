@@ -17,6 +17,65 @@ from-scratch Markdown renderer, animation timing, GitHub API calls (via
 
 <img width="1320" height="660" alt="image" src="https://github.com/user-attachments/assets/0ea6c6a2-11c9-49d3-a3f2-15e3a1f1591c" />
 
+## Quick start — Codespaces (recommended)
+
+The fastest way to run Gitarium, and how it's meant to be used for security work:
+
+1. **Fork** the repo, then **Code → Open with Codespaces** on your fork.
+2. The devcontainer installs the toolchain, builds the browser wasm once, and
+   **auto-starts the app in proxy mode** in a foreground terminal.
+3. Codespaces **forwards port 8080 and opens it** in a browser tab.
+4. **Paste a GitHub PAT** at the auth screen (or press Enter for anonymous).
+
+No local toolchain, no build step on your end.
+
+### Why run it this way
+
+- **All GitHub API traffic egresses from the codespace, not your browser.** In
+  proxy mode the browser never calls `api.github.com` directly — each request
+  rides a WebSocket to the codespace, which performs the `fetch` and returns the
+  response. For red-team / engagement work this keeps the API activity off your
+  own connection and origin. (AI / agent inference still goes direct.)
+- **A scoped PAT is all you need to learn a private repo — no clone required.**
+  Grant a PAT read access to the repos you're authorized to assess and browse
+  their trees, source, issues, PRs, and CI through the API in seconds. A
+  `git clone` of a large repo is slow and noisy; this is fast, lightweight
+  reconnaissance, with nothing written to disk.
+- **Ambient credentials don't leak.** Proxy mode forwards **only the PAT you
+  paste**; the codespace's own auto-injected `GITHUB_TOKEN` is deliberately
+  ignored.
+
+### Every GitHub call is logged
+
+In proxy mode each forwarded GitHub request is written to the codespace
+terminal as one sanitized line — a built-in audit trail of exactly which
+endpoints were hit, and how:
+
+```
+2026-06-14T12:34:56.789Z [gitarium-proxy] GET https://api.github.com/repos/acme/widgets/actions/runs?per_page=50
+2026-06-14T12:34:56.790Z [gitarium-proxy] DELETE https://api.github.com/repos/acme/widgets/actions/runs/88301234567
+2026-06-14T12:34:56.791Z [gitarium-proxy] POST https://api.github.com/repos/acme/widgets/git/blobs {"content":"…","encoding":"base64"}
+```
+
+- One line per call, led by an ISO-8601 UTC timestamp: `TIMESTAMP METHOD URL`
+  plus the first 100 chars of the request body (if any). The **Authorization
+  header is never logged**.
+- Tokens are redacted — classic and fine-grained PATs (`ghp_…`, `github_pat_…`)
+  and `Bearer …` values become `[REDACTED]`, and newlines are flattened, so no
+  entry can span lines or leak a secret.
+- The stream is the proxy server's stdout — the same foreground terminal
+  `serve.ts --api-proxy` runs in — so it's there live and trivial to redirect
+  to a file for a durable audit log.
+
+That record does double duty: it's a **complete audit log of your own API
+activity**, and because every call egresses from one codespace origin it's a
+faithful picture for **defenders analyzing detection opportunities** — the
+endpoint / method / volume pattern they'd actually observe from this kind of
+tool. (AI agent inference stays direct and isn't logged here.)
+
+First time in a codespace it asks to allow the auto-serve task (one-time
+click). After editing Rust, rebuild with `Ctrl/Cmd+Shift+B` before refreshing.
+Full details in [`.devcontainer/README.md`](.devcontainer/README.md).
 
 > **New to the codebase?** [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the map —
 > how the crates fit together, the runtime loop, each subsystem, and the
@@ -50,7 +109,7 @@ from-scratch Markdown renderer, animation timing, GitHub API calls (via
   download
 - **Download** — right-click a folder (or the repo root) to download it as a
   `.tar.gz`, built **in-wasm** from the current branch's blobs
-- **AI agent** (`i`) — paste an Anthropic API key and describe a task in plain
+- **AI agent** (`i`) — paste an Anthropic-compatible API key and describe a task in plain
   language; Claude drives the GitHub REST API autonomously through a generic
   tool — list/triage issues, open PRs, inspect CI, anything the API allows under
   your PAT. Large responses land as files in an in-wasm mini-shell (pipes,
@@ -82,7 +141,10 @@ wasm-pack build crates/headless --target web  # headless agent → ~1.2 MB
 cargo test --workspace                        # host-side checks
 ```
 
-## Run
+## Run locally
+
+Prefer the Codespaces quick start above unless you're developing on this repo.
+To serve from your machine:
 
 ```sh
 bun scripts/serve.ts   # then open http://localhost:8080
@@ -97,20 +159,21 @@ Paste a PAT at the auth screen (or press Enter for anonymous mode).
 Optional: `localStorage.setItem("gitarium_token", "<PAT>")` to skip the prompt.
 CORS is a non-issue: `api.github.com` allows cross-origin calls.
 
-### API proxy (optional)
+### API proxy mode
+
+This is the mode the Codespaces path runs automatically; locally:
 
 ```sh
 bun scripts/serve.ts --api-proxy   # browser ⇄ server over a WebSocket
 ```
 
-With `--api-proxy` the browser stops calling `api.github.com` directly: every
-GitHub request is forwarded to the server over a WebSocket (`/__gh`), which
-performs the fetch and forwards the response back. AI/Anthropic inference still
-goes **directly** from the browser. The server forwards **only the PAT you paste
-at the auth screen** — it does not read `GITHUB_TOKEN`, so ambient credentials
-never leak into the session (paste a PAT, or press Enter for anonymous). When
-proxying is on, GitHub calls **hard-fail** if the socket is down rather than
-silently going direct (the socket reconnects on the next call).
+The browser stops calling `api.github.com` and routes every GitHub request over
+a WebSocket (`/__gh`) to the server, which performs the fetch — so GitHub
+traffic egresses from the server, not the browser (see Quick start above for
+why). The server forwards **only the PAT you paste** — it never reads
+`GITHUB_TOKEN`. AI / Anthropic traffic stays direct. When proxying is on, GitHub
+calls **hard-fail** if the socket is down rather than silently going direct (the
+socket reconnects on the next call).
 
 ## Headless agent
 
