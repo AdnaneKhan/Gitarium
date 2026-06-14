@@ -100,19 +100,17 @@ CORS is a non-issue: `api.github.com` allows cross-origin calls.
 ### API proxy (optional)
 
 ```sh
-bun scripts/serve.ts --api-proxy                      # browser ⇄ server over a WebSocket
-GITHUB_TOKEN=ghp_… bun scripts/serve.ts --api-proxy   # …with a server-held token
+bun scripts/serve.ts --api-proxy   # browser ⇄ server over a WebSocket
 ```
 
 With `--api-proxy` the browser stops calling `api.github.com` directly: every
 GitHub request is forwarded to the server over a WebSocket (`/__gh`), which
 performs the fetch and forwards the response back. AI/Anthropic inference still
-goes **directly** from the browser. Token model — *support both*: if
-`GITHUB_TOKEN` is set the server uses it (the browser needs no PAT — press Enter
-at the auth screen to log in with the server's identity); otherwise the browser's
-forwarded token is used. When proxying is on, GitHub calls **hard-fail** if the
-socket is down rather than silently going direct (the socket reconnects on the
-next call).
+goes **directly** from the browser. The server forwards **only the PAT you paste
+at the auth screen** — it does not read `GITHUB_TOKEN`, so ambient credentials
+never leak into the session (paste a PAT, or press Enter for anonymous). When
+proxying is on, GitHub calls **hard-fail** if the socket is down rather than
+silently going direct (the socket reconnects on the next call).
 
 ## Headless agent
 
