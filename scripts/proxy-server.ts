@@ -54,10 +54,6 @@ async function handle(ws: WS, raw: string, token?: string): Promise<void> {
     }
     headers["Authorization"] = `Bearer ${token}`;
   }
-  // GitHub requires a User-Agent on every API request.
-  if (!Object.keys(headers).some((k) => k.toLowerCase() === "user-agent")) {
-    headers["User-Agent"] = "Gitarium-Proxy";
-  }
 
   try {
     const resp = await fetch(GITHUB + req.path, {
