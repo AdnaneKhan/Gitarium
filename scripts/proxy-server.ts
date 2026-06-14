@@ -2,9 +2,12 @@
 // GitHub request over a WebSocket; this performs the actual fetch server-side
 // and forwards the response back. Shared by serve.ts and test-browser.ts.
 //
-// Token model — "support both": if GITHUB_TOKEN is configured the server
-// overrides the Authorization header with it; otherwise the browser-forwarded
-// token is used as-is. AI/Anthropic calls never come here (they stay direct).
+// Token model — in production (serve.ts) the browser-forwarded Authorization
+// header is passed through as-is: the server uses only the PAT the user pasted
+// at the auth screen and never reads GITHUB_TOKEN, so no ambient creds leak
+// into the session. The optional `token` below is exercised only by the test
+// harness (test-browser.ts) to cover the server-side override path.
+// AI/Anthropic calls never come here (they stay direct).
 const GITHUB = "https://api.github.com";
 const PROXY_PATH = "/__gh";
 
@@ -17,7 +20,9 @@ export type Proxy = {
   websocket: { message(ws: WS, raw: string | Buffer): Promise<void> };
 };
 
-/** Build the proxy handler. `token` (server PAT) overrides the forwarded one. */
+/** Build the proxy handler. `token`, when set, overrides the forwarded
+ * Authorization header — used by the test harness; serve.ts passes none, so
+ * the pasted token flows through unchanged. */
 export function makeProxy(token?: string): Proxy {
   return {
     path: PROXY_PATH,

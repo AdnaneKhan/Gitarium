@@ -36,9 +36,11 @@ async function load(fsPath: string): Promise<Entry | null> {
 }
 
 // `--api-proxy` routes the browser's GitHub calls through this server over a
-// WebSocket; GITHUB_TOKEN (if set) overrides the forwarded token.
+// WebSocket. Only the token pasted into the auth field is used: the browser
+// forwards it per-request, and the server passes it through unchanged. We do
+// NOT read GITHUB_TOKEN here — no ambient creds leak into the session.
 const proxy = process.argv.includes("--api-proxy")
-  ? makeProxy(process.env.GITHUB_TOKEN?.trim() || undefined)
+  ? makeProxy()
   : null;
 
 const server = Bun.serve({

@@ -16,14 +16,14 @@
 
   // Declare the secrets the app reads. Set them under Codespace secrets
   // (https://github.com/settings/codespaces) — Codespaces prompts for them on
-  // first create. Both are optional.
+  // first create. NOTE: GitHub auth in proxy mode uses only the PAT pasted at
+  // the auth screen — GITHUB_TOKEN is intentionally NOT read (the codespace's
+  // auto-injected token is ignored), so it is not declared here.
   "secrets": {
-    "GITHUB_TOKEN": "GitHub token the proxy uses server-side for ALL GitHub API traffic. If unset, the codespace's own token (if any) or the in-browser token is used.",
     "ANTHROPIC_API_KEY": "Anthropic API key for the in-app and headless agent."
   },
-  // Forward the injected secrets into terminals / tasks / the server process.
+  // Forward the injected secret into terminals / tasks / the server process.
   "remoteEnv": {
-    "GITHUB_TOKEN": "${containerEnv:GITHUB_TOKEN}",
     "ANTHROPIC_API_KEY": "${containerEnv:ANTHROPIC_API_KEY}"
   },
 

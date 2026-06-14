@@ -31,13 +31,15 @@ Net effect: **all GitHub API traffic egresses from the codespace.**
 
 ## Tokens
 
-Declared as Codespace secrets (the devcontainer prompts for them on first
-create); set them at <https://github.com/settings/codespaces>.
+GitHub auth in proxy mode uses **only the PAT you paste at the auth screen**:
+the server forwards it per-request and never reads `GITHUB_TOKEN`. The
+codespace's own auto-injected `GITHUB_TOKEN` is deliberately ignored, so no
+ambient credentials leak into the session. Paste a PAT for writes (commit /
+merge), or press Enter for anonymous (read-only).
 
-| Secret | Used by | Notes |
-| --- | --- | --- |
-| `GITHUB_TOKEN` | the proxy (server-side) | When set, the proxy **overrides** the in-browser token for every GitHub call. If unset, the codespace's own `GITHUB_TOKEN` (if injected) or whatever you type in the app is forwarded as-is. The codespace token's scopes may be limited — use a PAT for writes (commit / merge). |
-| `ANTHROPIC_API_KEY` | the agent | Optional; only needed to use the in-app (`i`) or headless agent. |
+`ANTHROPIC_API_KEY` is an optional Codespace secret (set it at
+<https://github.com/settings/codespaces>); only needed for the in-app (`i`) or
+headless agent.
 
 ## Running it
 
