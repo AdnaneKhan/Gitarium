@@ -18,10 +18,15 @@ manifests — hence the fork.
 
 Measured saving on the web target: raw −261 KB, gzip −92 KB.
 
+## License
+jaq-std is MIT-licensed (Michael Färber); `LICENSE-MIT` here is its upstream
+license, kept so the attribution travels with the vendored copy.
+
 ## Updating
 When bumping jaq-std:
 1. `cp -r ~/.cargo/registry/src/index.crates.io-*/jaq-std-<ver>/* vendor/jaq-std/`
 2. Re-apply the `[dependencies.jiff]` change above (and drop `[[test]]` /
    `[dev-dependencies]`).
 3. Bump the version in the patch requirement if the major changes.
-4. `wasm-pack build --target web` + `cargo test --workspace` to verify.
+4. Keep `LICENSE-MIT` (restore it if the copy dropped it).
+5. `wasm-pack build --target web` + `cargo test --workspace` to verify.
