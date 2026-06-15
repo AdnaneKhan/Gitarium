@@ -2,6 +2,7 @@
 name = "gitarium-headless"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 # Headless-only wasm target: exports just `agent_run_headless`, pulling in
 # the agent + foundation but no UI/rendering. Build with:
