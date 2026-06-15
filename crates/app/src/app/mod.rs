@@ -6,6 +6,7 @@
 pub mod editor;
 
 mod actions;
+mod agent_approval;
 mod agent_compact;
 mod agent_history;
 mod agent_loop;
@@ -100,6 +101,11 @@ pub struct App {
     /// shown in the UI. Defaults to `agent::MODEL`.
     pub agent_model: String,
     pub agent: AgentChat,
+    /// YOLO mode: when on, the interactive agent runs mutating github_api
+    /// calls without asking for approval. Session-scoped (resets to off on
+    /// reload) and gated behind a risk modal, so the safe default is restored
+    /// every load. Has no effect on the headless agent.
+    pub yolo: bool,
 
     /// Author/committer/date overrides for staged commits; remembered across
     /// commits in a session (see the commit overlay).
@@ -143,6 +149,7 @@ impl App {
             agent_model: crate::agent::load_model()
                 .unwrap_or_else(|| crate::agent::MODEL.to_string()),
             agent: AgentChat::new(),
+            yolo: false,
             commit_identity: CommitIdentity::default(),
             layout: Layout::default(),
             dirty: true,

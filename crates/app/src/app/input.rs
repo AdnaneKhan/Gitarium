@@ -223,6 +223,7 @@ impl App {
             // ever reaches here; this arm only keeps the match exhaustive.
             Click::OpenUrl(_) => {}
             Click::ModelPickBtn => self.open_model_pick(),
+            Click::AgentYolo => self.toggle_yolo(),
             Click::AgentClear => self.agent_clear(),
             Click::AgentResetKey => {
                 if self.agent.busy {

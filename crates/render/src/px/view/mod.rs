@@ -37,6 +37,7 @@ mod issue_detail_pane;
 mod issues_pane;
 mod links;
 mod md;
+mod overlay_agent;
 mod overlay_commit;
 mod overlay_grep;
 mod overlay_pick;

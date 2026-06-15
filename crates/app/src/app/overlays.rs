@@ -25,6 +25,8 @@ impl App {
             Some(Overlay::FileSearch { .. }) => self.file_search_key(key, mods),
             Some(Overlay::CodeSearch { .. }) => self.code_search_key(key, mods),
             Some(Overlay::SettingsForm(_)) => self.settings_form_key(key, mods),
+            Some(Overlay::AgentApproval { .. }) => self.agent_approval_key(key, mods),
+            Some(Overlay::YoloWarn) => self.yolo_warn_key(key, mods),
         }
     }
 

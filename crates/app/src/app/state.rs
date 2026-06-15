@@ -269,6 +269,15 @@ pub enum Overlay {
     /// A settings create/edit form (secrets, variables, deploy keys, …).
     SettingsForm(SettingsForm),
     Confirm { msg: String, action: ConfirmAction },
+    /// A mutating github_api turn in the interactive agent, paused for manual
+    /// approval before it runs. `summary` lists the write call(s); `content`
+    /// is the assistant turn, re-parsed and dispatched on approval or answered
+    /// with a refusal on deny. Reached only in the app — the headless agent
+    /// runs autonomously and never gates writes.
+    AgentApproval { summary: String, content: serde_json::Value },
+    /// Risk warning shown before YOLO mode (auto-approve agent writes) is
+    /// turned on; confirming enables it, aborting leaves it off.
+    YoloWarn,
 }
 
 #[derive(Clone)]
@@ -355,6 +364,9 @@ pub enum Click {
     ModelPickBtn,
     AgentClear,
     AgentResetKey,
+    /// "YOLO" chip in the agent toolbar → toggle auto-approve of mutating
+    /// API calls (enabling first pops a risk modal; disabling is immediate).
+    AgentYolo,
     /// A hyperlink in the agent transcript: index into the px view's
     /// per-frame url table. Opened by the view layer (browser `window.open`),
     /// not `perform_click` — the app crate has no DOM access.

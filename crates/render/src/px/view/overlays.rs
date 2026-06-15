@@ -40,6 +40,8 @@ impl View {
             Overlay::CodeSearch { .. } => "CODE SEARCH",
             Overlay::SettingsForm(_) => "SETTINGS",
             Overlay::Confirm { .. } => "CONFIRM",
+            Overlay::AgentApproval { .. } => "APPROVE API WRITE",
+            Overlay::YoloWarn => "ENABLE YOLO MODE",
             Overlay::Help => "KEYMAP",
         };
         let title = app.overlay.as_ref().map(title_of).unwrap_or("").to_string();
@@ -56,6 +58,8 @@ impl View {
             Overlay::CodeSearch { .. } => self.ov_code_search(app, dl, atlas, w, h, lift, &title),
             Overlay::SettingsForm(_) => self.ov_settings_form(app, dl, atlas, w, h, pw, lift, &title),
             Overlay::Confirm { .. } => self.ov_confirm(app, dl, atlas, w, h, pw, lift, &title),
+            Overlay::AgentApproval { .. } => self.ov_agent_approval(app, dl, atlas, w, h, pw, lift, &title),
+            Overlay::YoloWarn => self.ov_yolo_warn(dl, atlas, w, h, pw, lift, &title),
             Overlay::Help => self.ov_help(dl, atlas, w, h, pw, lift, &title),
         }
     }

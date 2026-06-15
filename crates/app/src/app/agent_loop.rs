@@ -4,7 +4,6 @@
 
 use serde_json::Value;
 
-use super::agent_history::LIVE_GEN;
 use super::chat::AgentItem;
 use super::{App, Msg};
 
@@ -133,26 +132,16 @@ impl App {
                     self.sanitize_history_tail();
                     return;
                 }
-                self.agent.pending.clear();
-                for c in &calls {
-                    self.agent.push(AgentItem::Tool { label: c.label(), done: None });
-                    self.agent.pending.push(self.agent.transcript.len() - 1);
+                // Mutating calls pause for manual approval unless YOLO mode is
+                // on; the assistant turn is already in history, so the overlay
+                // keeps `content` to re-dispatch (approve) or refuse (deny).
+                if !self.yolo && calls.iter().any(|c| c.is_mutating()) {
+                    let summary = super::agent_approval::write_summary(&calls);
+                    self.agent.busy = false;
+                    self.overlay = Some(super::Overlay::AgentApproval { summary, content });
+                    return;
                 }
-                let token = self.token.clone();
-                let gen = self.agent.gen;
-                crate::spawn_msg(async move {
-                    let mut results = Vec::with_capacity(calls.len());
-                    for c in &calls {
-                        // A cancel orphans the results; it must also stop
-                        // the remaining (possibly mutating) executions.
-                        if LIVE_GEN.with(|g| g.get()) != gen {
-                            break;
-                        }
-                        let (text, ok) = crate::agent::exec(&token, c).await;
-                        results.push((crate::agent::tool_result_block(c.id(), &text, ok), ok));
-                    }
-                    Msg::AgentToolsDone { gen, results }
-                });
+                self.run_tool_batch(calls);
             }
             // Server-side pause (defensive — no server tools configured):
             // re-send and the API resumes where it left off.
