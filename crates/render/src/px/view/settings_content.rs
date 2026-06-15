@@ -1,6 +1,6 @@
-//! Per-section content for the Settings tab. General is a read-only metadata
-//! view; Secrets / Variables / DeployKeys share a list renderer (selectable
-//! rows + Add/Edit/Delete chips acting on the selected row).
+//! Per-section content for the Settings tab. General is a metadata view with an
+//! edit chip + danger zone; the list sections (Secrets / Variables / DeployKeys
+//! / Collaborators / Webhooks) share a selectable-row renderer.
 
 use super::*;
 
@@ -55,7 +55,11 @@ impl View {
     }
 
     pub(super) fn render_settings_general(&mut self, app: &mut App, dl: &mut DrawList, atlas: &mut Atlas, rect: &RectF) {
-        self.settings_header(dl, atlas, rect, "General", false, false);
+        let admin = app.is_admin();
+        dl.text(atlas, UI_BOLD, self.f(18.0), rect.x + self.f(20.0), rect.y + self.f(30.0), "General", TEXT, self.f(2.0));
+        if admin {
+            self.chip(dl, atlas, "Edit", rect.right() - self.f(16.0), rect.y + self.f(26.0), CYAN, Click::SettingsEdit, wid(Z_SET, 900));
+        }
         let Some(rv) = app.rv.as_ref() else { return };
         let x = rect.x + self.f(24.0);
         let mut y = rect.y + self.f(74.0);
@@ -73,6 +77,17 @@ impl View {
             let vv = dl.fit(atlas, UI, self.f(13.0), &v, rect.right() - x - kw - self.f(24.0));
             dl.text(atlas, UI, self.f(13.0), x + kw + self.f(12.0), y, &vv, TEXT, 0.0);
             y += self.f(26.0);
+        }
+        // Danger zone (admin only): archive + permanent delete.
+        if admin {
+            y += self.f(18.0);
+            dl.text(atlas, UI_BOLD, self.f(13.0), x, y, "DANGER ZONE", RED, self.f(2.0));
+            y += self.f(8.0);
+            let mut right = rect.right() - self.f(16.0);
+            let cy = y + self.f(16.0);
+            right = self.chip(dl, atlas, "Delete repository", right, cy, RED, Click::SettingsDeleteRepo, wid(Z_SET, 910));
+            let label = if rv.repo.archived { "Un-archive" } else { "Archive" };
+            self.chip(dl, atlas, label, right, cy, YELLOW, Click::SettingsArchiveRepo, wid(Z_SET, 911));
         }
     }
 
@@ -96,6 +111,20 @@ impl View {
         self.settings_header(dl, atlas, rect, "Deploy keys", can_edit, note.is_none() && !rows.is_empty());
         self.settings_list_body(app, dl, atlas, rect, &rows, note);
     }
+
+    pub(super) fn render_settings_collaborators(&mut self, app: &mut App, dl: &mut DrawList, atlas: &mut Atlas, rect: &RectF) {
+        let can_edit = app.is_admin();
+        let (rows, note) = collaborators_rows(app);
+        self.settings_header(dl, atlas, rect, "Collaborators", can_edit, note.is_none() && !rows.is_empty());
+        self.settings_list_body(app, dl, atlas, rect, &rows, note);
+    }
+
+    pub(super) fn render_settings_webhooks(&mut self, app: &mut App, dl: &mut DrawList, atlas: &mut Atlas, rect: &RectF) {
+        let can_edit = app.is_admin();
+        let (rows, note) = webhooks_rows(app);
+        self.settings_header(dl, atlas, rect, "Webhooks", can_edit, note.is_none() && !rows.is_empty());
+        self.settings_list_body(app, dl, atlas, rect, &rows, note);
+    }
 }
 
 fn secrets_rows(app: &App) -> (Vec<(String, String)>, Option<(&'static str, bool)>) {
@@ -114,9 +143,26 @@ fn deploy_keys_rows(app: &App) -> (Vec<(String, String)>, Option<(&'static str, 
     })
 }
 
+fn collaborators_rows(app: &App) -> (Vec<(String, String)>, Option<(&'static str, bool)>) {
+    list_state(app.rv.as_ref().map(|rv| &rv.settings.collaborators), |c| (c.login.clone(), c.role().to_string()))
+}
+
+fn webhooks_rows(app: &App) -> (Vec<(String, String)>, Option<(&'static str, bool)>) {
+    list_state(app.rv.as_ref().map(|rv| &rv.settings.webhooks), |h| {
+        let url = h.config.url.clone().unwrap_or_else(|| format!("#{}", h.id));
+        let evs = if h.events.is_empty() {
+            "no events".to_string()
+        } else if h.events.len() <= 3 {
+            h.events.join(", ")
+        } else {
+            format!("{} events", h.events.len())
+        };
+        (url, evs)
+    })
+}
+
 /// Map a section's `Loadable` to (rows, note). Ready→rows; Loading→"fetching";
-/// Failed→error; empty→"no …". The `empty`/`loading`/`failed` strings are
-/// static so they can return by reference into the body renderer.
+/// Failed→error; empty→"none yet".
 fn list_state<T, F: Fn(&T) -> (String, String)>(
     slot: Option<&Loadable<Vec<T>>>,
     map: F,

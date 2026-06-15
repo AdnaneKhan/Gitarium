@@ -28,6 +28,7 @@ web-sys = { workspace = true, features = [
     "Headers",
     "MessageEvent",
     "Request",
+    "RequestCache",
     "RequestInit",
     "Response",
     "Storage",

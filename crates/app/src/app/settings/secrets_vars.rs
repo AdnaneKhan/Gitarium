@@ -34,7 +34,7 @@ impl App {
             nm.input.insert(&name);
         }
         let val = SettingsField { label: "Value".into(), input: LineInput::new(true), readonly: false };
-        self.overlay = Some(Overlay::SettingsForm(SettingsForm {
+        self.overlay = Some(Overlay::SettingsForm(SettingsForm::Simple {
             title: if create { "New secret".into() } else { format!("Edit secret · {}", name) },
             submit: "Save secret".into(),
             section: SettingsSection::Secrets,
@@ -70,7 +70,7 @@ impl App {
         if !value.is_empty() {
             val.input.insert(&value);
         }
-        self.overlay = Some(Overlay::SettingsForm(SettingsForm {
+        self.overlay = Some(Overlay::SettingsForm(SettingsForm::Simple {
             title: if create { "New variable".into() } else { format!("Edit variable · {}", name) },
             submit: "Save variable".into(),
             section: SettingsSection::Variables,

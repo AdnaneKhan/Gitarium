@@ -37,6 +37,8 @@ impl App {
             Msg::SettingsMutated { repo, section, result } => {
                 self.on_settings_mutated(repo, section, result)
             }
+            Msg::RepoMetaUpdated { repo, result } => self.on_repo_meta_updated(repo, result),
+            Msg::RepoDeleted { repo, result } => self.on_repo_deleted(repo, result),
             Msg::RunDeleted { repo, run_id, result } => self.on_run_deleted(repo, run_id, result),
             Msg::IssuesLoaded { repo, result } => self.on_issues_loaded(repo, result),
             Msg::PullsLoaded { repo, result } => self.on_pulls_loaded(repo, result),

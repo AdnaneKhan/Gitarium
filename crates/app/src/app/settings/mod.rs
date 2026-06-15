@@ -3,17 +3,20 @@
 //! and submit are in `form.rs`; section CRUD in `secrets_vars.rs` and
 //! `deploy_keys.rs`; keymap in `keymap.rs`; the form's overlay keys in `form_key.rs`.
 
-use crate::github::{self, DeployKey, SecretMeta, SettingsData, Variable};
+use crate::github::{self, Collaborator, DeployKey, SecretMeta, SettingsData, Variable, Webhook};
 
 use super::{App, Loadable, Msg};
 // Re-exported for the sibling submodules below (they `use super::{…}`).
-pub(super) use super::{keys::plain, ConfirmAction, Overlay, Tab};
+pub(super) use super::{keys::plain, ConfirmAction, Overlay, Route, Tab};
 
+mod collaborators;
 mod deploy_keys;
 mod form;
 mod form_key;
+mod general;
 mod keymap;
 mod secrets_vars;
+mod webhooks;
 
 pub use form::{ChipSel, SettingsField, SettingsForm};
 
@@ -26,6 +29,8 @@ pub enum SettingsSection {
     Secrets,
     Variables,
     DeployKeys,
+    Collaborators,
+    Webhooks,
 }
 
 impl SettingsSection {
@@ -35,11 +40,13 @@ impl SettingsSection {
             SettingsSection::Secrets => "Secrets",
             SettingsSection::Variables => "Variables",
             SettingsSection::DeployKeys => "Deploy keys",
+            SettingsSection::Collaborators => "Collaborators",
+            SettingsSection::Webhooks => "Webhooks",
         }
     }
     /// Admin-only sections are hidden from write-only viewers.
     pub fn needs_admin(self) -> bool {
-        matches!(self, SettingsSection::DeployKeys)
+        matches!(self, SettingsSection::DeployKeys | SettingsSection::Collaborators | SettingsSection::Webhooks)
     }
 }
 
@@ -51,6 +58,8 @@ pub fn visible_sections(admin: bool) -> &'static [SettingsSection] {
             SettingsSection::Secrets,
             SettingsSection::Variables,
             SettingsSection::DeployKeys,
+            SettingsSection::Collaborators,
+            SettingsSection::Webhooks,
         ],
         false => &[SettingsSection::General, SettingsSection::Secrets, SettingsSection::Variables],
     }
@@ -67,6 +76,8 @@ pub struct SettingsView {
     pub secrets: Loadable<Vec<SecretMeta>>,
     pub variables: Loadable<Vec<Variable>>,
     pub deploy_keys: Loadable<Vec<DeployKey>>,
+    pub collaborators: Loadable<Vec<Collaborator>>,
+    pub webhooks: Loadable<Vec<Webhook>>,
 }
 
 impl Default for SettingsView {
@@ -81,6 +92,8 @@ impl Default for SettingsView {
             secrets: Loadable::Idle,
             variables: Loadable::Idle,
             deploy_keys: Loadable::Idle,
+            collaborators: Loadable::Idle,
+            webhooks: Loadable::Idle,
         }
     }
 }
@@ -105,6 +118,8 @@ impl App {
                 SettingsSection::Secrets => matches!(s.secrets, Loadable::Idle),
                 SettingsSection::Variables => matches!(s.variables, Loadable::Idle),
                 SettingsSection::DeployKeys => matches!(s.deploy_keys, Loadable::Idle),
+                SettingsSection::Collaborators => matches!(s.collaborators, Loadable::Idle),
+                SettingsSection::Webhooks => matches!(s.webhooks, Loadable::Idle),
                 SettingsSection::General => false,
             }
         };
@@ -119,6 +134,8 @@ impl App {
             SettingsSection::Secrets => rv.settings.secrets = Loadable::Loading,
             SettingsSection::Variables => rv.settings.variables = Loadable::Loading,
             SettingsSection::DeployKeys => rv.settings.deploy_keys = Loadable::Loading,
+            SettingsSection::Collaborators => rv.settings.collaborators = Loadable::Loading,
+            SettingsSection::Webhooks => rv.settings.webhooks = Loadable::Loading,
             SettingsSection::General => return,
         };
         let token = self.token.clone();
@@ -128,6 +145,10 @@ impl App {
                 SettingsSection::Secrets => github::list_secrets(&token, &full).await.map(SettingsData::Secrets),
                 SettingsSection::Variables => github::list_variables(&token, &full).await.map(SettingsData::Variables),
                 SettingsSection::DeployKeys => github::list_deploy_keys(&token, &full).await.map(SettingsData::DeployKeys),
+                SettingsSection::Collaborators => {
+                    github::list_collaborators(&token, &full).await.map(SettingsData::Collaborators)
+                }
+                SettingsSection::Webhooks => github::list_webhooks(&token, &full).await.map(SettingsData::Webhooks),
                 SettingsSection::General => unreachable!("General is handled before the spawn"),
             };
             Msg::SettingsLoaded { repo: full, section, result }
@@ -152,6 +173,10 @@ impl App {
             (SettingsSection::Variables, Err(e)) => s.variables = Loadable::Failed(e),
             (SettingsSection::DeployKeys, Ok(SettingsData::DeployKeys(v))) => s.deploy_keys = Loadable::Ready(v),
             (SettingsSection::DeployKeys, Err(e)) => s.deploy_keys = Loadable::Failed(e),
+            (SettingsSection::Collaborators, Ok(SettingsData::Collaborators(v))) => s.collaborators = Loadable::Ready(v),
+            (SettingsSection::Collaborators, Err(e)) => s.collaborators = Loadable::Failed(e),
+            (SettingsSection::Webhooks, Ok(SettingsData::Webhooks(v))) => s.webhooks = Loadable::Ready(v),
+            (SettingsSection::Webhooks, Err(e)) => s.webhooks = Loadable::Failed(e),
             _ => {}
         }
         s.list_sel = 0;

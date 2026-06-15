@@ -102,6 +102,17 @@ pub enum Msg {
         section: SettingsSection,
         result: Result<(), String>,
     },
+    /// A General-tab metadata edit or archive succeeded → the fresh Repo to
+    /// swap into `rv.repo` (so name/description/default-branch/archived update).
+    RepoMetaUpdated {
+        repo: String,
+        result: Result<github::Repo, String>,
+    },
+    /// A repo delete finished; on success the UI leaves the repo screen.
+    RepoDeleted {
+        repo: String,
+        result: Result<(), String>,
+    },
     /// Outcome of deleting a workflow run (Actions tab).
     RunDeleted {
         repo: String,

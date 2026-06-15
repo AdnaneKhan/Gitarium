@@ -291,6 +291,12 @@ pub enum ConfirmAction {
     DeleteSecret { repo: String, name: String },
     DeleteVariable { repo: String, name: String },
     DeleteDeployKey { repo: String, id: i64 },
+    /// Remove a collaborator, delete a webhook (Settings tab), and the General
+    /// danger zone: archive / permanently delete the repository.
+    RemoveCollaborator { repo: String, user: String },
+    DeleteWebhook { repo: String, id: i64 },
+    ArchiveRepo { repo: String },
+    DeleteRepo { repo: String },
 }
 
 /// Mouse hit-regions, rebuilt on every draw.
@@ -363,6 +369,12 @@ pub enum Click {
     SettingsEdit,
     SettingsDelete,
     SettingsCycleChip,
+    /// Webhook (Multi) form: cycle the content-type chip, toggle one event row.
+    SettingsCycleContentType,
+    SettingsToggleEvent(usize),
+    /// General danger-zone buttons.
+    SettingsArchiveRepo,
+    SettingsDeleteRepo,
 }
 
 #[derive(Clone, Copy, PartialEq)]

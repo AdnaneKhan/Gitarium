@@ -89,6 +89,8 @@ impl App {
             SettingsSection::Secrets => s.secrets.ready().map(|v| v.len()).unwrap_or(0),
             SettingsSection::Variables => s.variables.ready().map(|v| v.len()).unwrap_or(0),
             SettingsSection::DeployKeys => s.deploy_keys.ready().map(|v| v.len()).unwrap_or(0),
+            SettingsSection::Collaborators => s.collaborators.ready().map(|v| v.len()).unwrap_or(0),
+            SettingsSection::Webhooks => s.webhooks.ready().map(|v| v.len()).unwrap_or(0),
             SettingsSection::General => 0,
         };
         (s.nav_focused, s.section, count)
@@ -136,7 +138,9 @@ impl App {
             SettingsSection::Secrets => self.open_secret_form(true),
             SettingsSection::Variables => self.open_variable_form(true),
             SettingsSection::DeployKeys => self.open_deploy_key_form(),
-            SettingsSection::General => {}
+            SettingsSection::Collaborators => self.open_collaborator_form(true),
+            SettingsSection::Webhooks => self.open_webhook_form(true),
+            SettingsSection::General => self.open_general_form(),
         }
     }
 
@@ -147,7 +151,9 @@ impl App {
             SettingsSection::DeployKeys => {
                 self.toast = Some(("deploy keys can't be edited — delete and re-add".into(), true));
             }
-            SettingsSection::General => {}
+            SettingsSection::Collaborators => self.open_collaborator_form(false),
+            SettingsSection::Webhooks => self.open_webhook_form(false),
+            SettingsSection::General => self.open_general_form(),
         }
     }
 
@@ -156,7 +162,9 @@ impl App {
             SettingsSection::Secrets => self.request_delete_secret(),
             SettingsSection::Variables => self.request_delete_variable(),
             SettingsSection::DeployKeys => self.request_delete_deploy_key(),
-            SettingsSection::General => {}
+            SettingsSection::Collaborators => self.request_delete_collaborator(),
+            SettingsSection::Webhooks => self.request_delete_webhook(),
+            SettingsSection::General => self.request_delete_repo(),
         }
     }
 }

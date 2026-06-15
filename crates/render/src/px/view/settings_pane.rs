@@ -37,6 +37,8 @@ impl View {
             SettingsSection::Secrets => self.render_settings_secrets(app, dl, atlas, &content),
             SettingsSection::Variables => self.render_settings_variables(app, dl, atlas, &content),
             SettingsSection::DeployKeys => self.render_settings_deploy_keys(app, dl, atlas, &content),
+            SettingsSection::Collaborators => self.render_settings_collaborators(app, dl, atlas, &content),
+            SettingsSection::Webhooks => self.render_settings_webhooks(app, dl, atlas, &content),
         }
     }
 }

@@ -296,6 +296,12 @@ impl App {
                     ConfirmAction::DeleteSecret { repo, name } => self.do_delete_secret(repo, name),
                     ConfirmAction::DeleteVariable { repo, name } => self.do_delete_variable(repo, name),
                     ConfirmAction::DeleteDeployKey { repo, id } => self.do_delete_deploy_key(repo, id),
+                    ConfirmAction::RemoveCollaborator { repo, user } => {
+                        self.do_remove_collaborator(repo, user)
+                    }
+                    ConfirmAction::DeleteWebhook { repo, id } => self.do_delete_webhook(repo, id),
+                    ConfirmAction::ArchiveRepo { repo } => self.do_archive_repo(repo),
+                    ConfirmAction::DeleteRepo { repo } => self.do_delete_repo(repo),
                 }
                 true
             }

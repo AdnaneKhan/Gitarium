@@ -18,7 +18,7 @@ impl App {
         let repo = rv.repo.full_name.clone();
         let title = SettingsField { label: "Title".into(), input: LineInput::new(false), readonly: false };
         let key = SettingsField { label: "Public key (ssh-… / ecdsa-…)".into(), input: LineInput::new(false), readonly: false };
-        self.overlay = Some(Overlay::SettingsForm(SettingsForm {
+        self.overlay = Some(Overlay::SettingsForm(SettingsForm::Simple {
             title: "New deploy key".into(),
             submit: "Add key".into(),
             section: SettingsSection::DeployKeys,

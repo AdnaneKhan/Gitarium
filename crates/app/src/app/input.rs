@@ -277,8 +277,9 @@ impl App {
                 }
             }
             Click::SettingsCycleChip => {
-                if let Some(super::Overlay::SettingsForm(form)) = &mut self.overlay {
-                    if let Some(c) = &mut form.chip {
+                if let Some(super::Overlay::SettingsForm(super::SettingsForm::Simple { chip, .. })) = &mut self.overlay
+                {
+                    if let Some(c) = chip {
                         let m = c.options.len();
                         if m > 0 {
                             c.sel = (c.sel + 1) % m;
@@ -286,6 +287,10 @@ impl App {
                     }
                 }
             }
+            Click::SettingsCycleContentType => self.settings_cycle_content_type(),
+            Click::SettingsToggleEvent(i) => self.settings_toggle_event(i),
+            Click::SettingsArchiveRepo => self.request_archive_repo(),
+            Click::SettingsDeleteRepo => self.request_delete_repo(),
         }
     }
 }

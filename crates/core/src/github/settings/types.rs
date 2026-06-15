@@ -67,4 +67,49 @@ pub enum SettingsData {
     Secrets(Vec<SecretMeta>),
     Variables(Vec<Variable>),
     DeployKeys(Vec<DeployKey>),
+    Collaborators(Vec<Collaborator>),
+    Webhooks(Vec<Webhook>),
+}
+
+/// A repository collaborator. `permissions` mirrors the repo `Permissions`
+/// shape; the effective role is derived from it (admin → push → triage → read).
+#[derive(Deserialize, Clone, Debug)]
+pub struct Collaborator {
+    pub login: String,
+    #[serde(default)]
+    pub permissions: Option<crate::github::Permissions>,
+}
+
+impl Collaborator {
+    /// "admin" | "maintain" | "write" | "triage" | "read" — the highest of the
+    /// granted flags, matching GitHub's collaborator role vocabulary.
+    pub fn role(&self) -> &'static str {
+        match self.permissions.as_ref() {
+            Some(p) if p.admin => "admin",
+            Some(p) if p.maintain => "maintain",
+            Some(p) if p.push => "write",
+            Some(p) if p.triage => "triage",
+            _ => "read",
+        }
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct WebhookConfig {
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
+/// A repository webhook: target URL, subscribed events, and active flag.
+#[derive(Deserialize, Clone, Debug)]
+pub struct Webhook {
+    pub id: i64,
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub events: Vec<String>,
+    #[serde(default)]
+    pub config: WebhookConfig,
 }
