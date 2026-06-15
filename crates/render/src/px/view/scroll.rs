@@ -66,6 +66,16 @@ impl View {
             // Scroll state for the agent transcript lives in the Smooth only;
             // there is no keyboard row cursor to keep coherent.
             Scroll::Agent => {}
+            Scroll::SettingsNav => {
+                if let Some(rv) = &mut app.rv {
+                    rv.settings.nav_scroll = rows;
+                }
+            }
+            Scroll::SettingsList => {
+                if let Some(rv) = &mut app.rv {
+                    rv.settings.list_scroll = rows;
+                }
+            }
         }
         self.needs_frame = true;
     }

@@ -38,6 +38,7 @@ impl View {
             Overlay::FileSearch { .. } => "FIND FILE",
             Overlay::CodeSearch { scope: SearchScope::Global, .. } => "CODE SEARCH · GLOBAL",
             Overlay::CodeSearch { .. } => "CODE SEARCH",
+            Overlay::SettingsForm(_) => "SETTINGS",
             Overlay::Confirm { .. } => "CONFIRM",
             Overlay::Help => "KEYMAP",
         };
@@ -53,6 +54,7 @@ impl View {
             Overlay::BranchPick { .. } => self.ov_branch_pick(app, dl, atlas, w, h, pw, lift, &title),
             Overlay::FileSearch { .. } => self.ov_file_search(app, dl, atlas, w, h, lift, &title),
             Overlay::CodeSearch { .. } => self.ov_code_search(app, dl, atlas, w, h, lift, &title),
+            Overlay::SettingsForm(_) => self.ov_settings_form(app, dl, atlas, w, h, pw, lift, &title),
             Overlay::Confirm { .. } => self.ov_confirm(app, dl, atlas, w, h, pw, lift, &title),
             Overlay::Help => self.ov_help(dl, atlas, w, h, pw, lift, &title),
         }

@@ -251,6 +251,37 @@ impl App {
                 self.hide_archived = !self.hide_archived;
                 self.repo_sel = 0;
             }
+            Click::SettingsNav(i) => {
+                if let Some(&sec) = super::visible_sections(self.is_admin()).get(i) {
+                    self.switch_settings_section(sec);
+                }
+            }
+            Click::SettingsRow(i) => {
+                if let Some(rv) = &mut self.rv {
+                    rv.settings.list_sel = i;
+                }
+            }
+            Click::SettingsAdd => {
+                if let Some(s) = self.rv.as_ref().map(|rv| rv.settings.section) {
+                    self.open_section_create(s);
+                }
+            }
+            Click::SettingsEdit => {
+                if let Some(s) = self.rv.as_ref().map(|rv| rv.settings.section) {
+                    self.open_section_edit(s);
+                }
+            }
+            Click::SettingsDelete => {
+                if let Some(s) = self.rv.as_ref().map(|rv| rv.settings.section) {
+                    self.request_section_delete(s);
+                }
+            }
+            Click::SettingsCycleChip => self.settings_cycle_chip(),
+            Click::SettingsFocusField(i) => self.settings_focus_field(i),
+            Click::SettingsCycleContentType => self.settings_cycle_content_type(),
+            Click::SettingsToggleEvent(i) => self.settings_toggle_event(i),
+            Click::SettingsArchiveRepo => self.request_archive_repo(),
+            Click::SettingsDeleteRepo => self.request_delete_repo(),
         }
     }
 }

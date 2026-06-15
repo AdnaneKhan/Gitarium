@@ -31,6 +31,14 @@ impl App {
             Msg::Runs { repo, result } => self.on_runs(repo, result),
             Msg::Jobs { repo, run_id, result } => self.on_jobs(repo, run_id, result),
             Msg::JobLogs { repo, job_id, result } => self.on_job_logs(repo, job_id, result),
+            Msg::SettingsLoaded { repo, section, result } => {
+                self.on_settings_loaded(repo, section, result)
+            }
+            Msg::SettingsMutated { repo, section, result } => {
+                self.on_settings_mutated(repo, section, result)
+            }
+            Msg::RepoMetaUpdated { repo, result } => self.on_repo_meta_updated(repo, result),
+            Msg::RepoDeleted { repo, result } => self.on_repo_deleted(repo, result),
             Msg::RunDeleted { repo, run_id, result } => self.on_run_deleted(repo, run_id, result),
             Msg::IssuesLoaded { repo, result } => self.on_issues_loaded(repo, result),
             Msg::PullsLoaded { repo, result } => self.on_pulls_loaded(repo, result),

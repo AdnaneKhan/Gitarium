@@ -7,6 +7,7 @@ use crate::ui::grid::Rect;
 use crate::ui::lineinput::LineInput;
 
 use super::editor::Editor;
+use super::settings::SettingsForm;
 
 pub enum Loadable<T> {
     Idle,
@@ -64,6 +65,7 @@ pub enum Tab {
     Issues,
     Pulls,
     Actions,
+    Settings,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -264,6 +266,8 @@ pub enum Overlay {
         loading_more: bool,
     },
     Help,
+    /// A settings create/edit form (secrets, variables, deploy keys, …).
+    SettingsForm(SettingsForm),
     Confirm { msg: String, action: ConfirmAction },
 }
 
@@ -283,6 +287,18 @@ pub enum ConfirmAction {
     MergePr { number: u64, method: String },
     /// Delete a workflow run (Actions tab) from the given repo.
     DeleteRun { repo: String, run_id: u64 },
+    /// Delete an Actions secret / variable, or a deploy key, from the Settings tab.
+    DeleteSecret { repo: String, name: String },
+    DeleteVariable { repo: String, name: String },
+    DeleteDeployKey { repo: String, id: i64 },
+    /// Remove a collaborator, cancel a pending invite, delete a webhook
+    /// (Settings tab), and the General danger zone: archive / permanently
+    /// delete the repository.
+    RemoveCollaborator { repo: String, user: String },
+    CancelInvitation { repo: String, invite_id: i64 },
+    DeleteWebhook { repo: String, id: i64 },
+    ArchiveRepo { repo: String },
+    DeleteRepo { repo: String },
 }
 
 /// Mouse hit-regions, rebuilt on every draw.
@@ -347,6 +363,22 @@ pub enum Click {
     SortDir,
     ToggleForks,
     ToggleArchived,
+    /// Settings tab: a left-nav section row, a right-content list row, and the
+    /// add / edit / delete / chip-cycle affordances.
+    SettingsNav(usize),
+    SettingsRow(usize),
+    SettingsAdd,
+    SettingsEdit,
+    SettingsDelete,
+    SettingsCycleChip,
+    /// Click a simple-form input field → focus it (index into `fields`).
+    SettingsFocusField(usize),
+    /// Webhook (Multi) form: cycle the content-type chip, toggle one event row.
+    SettingsCycleContentType,
+    SettingsToggleEvent(usize),
+    /// General danger-zone buttons.
+    SettingsArchiveRepo,
+    SettingsDeleteRepo,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -362,6 +394,9 @@ pub enum Scroll {
     Detail,
     /// The PR detail's right column (checks / reviews / mergeability).
     DetailMeta,
+    /// Settings tab: the section nav list and the section's content list.
+    SettingsNav,
+    SettingsList,
 }
 
 #[derive(Clone, Copy)]

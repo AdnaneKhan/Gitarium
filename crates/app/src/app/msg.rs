@@ -4,6 +4,8 @@
 
 use crate::github;
 
+use super::settings::SettingsSection;
+
 pub enum Msg {
     TokenChecked {
         token: Option<String>,
@@ -86,6 +88,30 @@ pub enum Msg {
         repo: String,
         job_id: u64,
         result: Result<String, String>,
+    },
+    /// A settings section's loaded data (secrets / variables / deploy keys / …).
+    SettingsLoaded {
+        repo: String,
+        section: SettingsSection,
+        result: Result<github::SettingsData, String>,
+    },
+    /// Outcome of a settings mutation (create / update / delete). On Ok the
+    /// handler toasts and refetches the section.
+    SettingsMutated {
+        repo: String,
+        section: SettingsSection,
+        result: Result<(), String>,
+    },
+    /// A General-tab metadata edit or archive succeeded → the fresh Repo to
+    /// swap into `rv.repo` (so name/description/default-branch/archived update).
+    RepoMetaUpdated {
+        repo: String,
+        result: Result<github::Repo, String>,
+    },
+    /// A repo delete finished; on success the UI leaves the repo screen.
+    RepoDeleted {
+        repo: String,
+        result: Result<(), String>,
     },
     /// Outcome of deleting a workflow run (Actions tab).
     RunDeleted {

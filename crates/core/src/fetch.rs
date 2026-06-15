@@ -29,6 +29,11 @@ pub async fn request(
 ) -> Result<HttpResponse, String> {
     let init = web_sys::RequestInit::new();
     init.set_method(method);
+    // Bypass the browser HTTP cache. GitHub sets `Cache-Control: private,
+    // max-age=60` on list responses, so without this a refetch right after a
+    // mutation (delete/create) returns the stale pre-mutation list for up to a
+    // minute — e.g. a deleted secret lingering in the UI.
+    init.set_cache(web_sys::RequestCache::NoStore);
     let h = web_sys::Headers::new().map_err(js_err)?;
     for (k, v) in headers {
         h.set(k, v).map_err(js_err)?;

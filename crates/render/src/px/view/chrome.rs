@@ -35,8 +35,16 @@ impl View {
             self.clicks.push((chip, Click::BranchBtn));
             x = chip.right();
 
-            // Tabs.
-            let tabs = [(Tab::Code, "CODE"), (Tab::Issues, "ISSUES"), (Tab::Pulls, "PULLS"), (Tab::Actions, "ACTIONS")];
+            // Tabs. Settings only appears for viewers with write access.
+            let mut tabs: Vec<(Tab, &str)> = vec![
+                (Tab::Code, "CODE"),
+                (Tab::Issues, "ISSUES"),
+                (Tab::Pulls, "PULLS"),
+                (Tab::Actions, "ACTIONS"),
+            ];
+            if app.can_edit_repo() {
+                tabs.push((Tab::Settings, "SETTINGS"));
+            }
             let sel_tab = app.rv.as_ref().map(|rv| rv.tab).unwrap_or(Tab::Code);
             let mut tx = x + self.f(30.0);
             for (i, (tab, label)) in tabs.iter().enumerate() {

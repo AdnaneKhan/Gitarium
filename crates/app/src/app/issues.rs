@@ -23,6 +23,7 @@ impl App {
                 Tab::Issues => matches!(rv.issues, Loadable::Idle),
                 Tab::Pulls => matches!(rv.pulls, Loadable::Idle),
                 Tab::Code => false,
+                Tab::Settings => false, // General needs no fetch; sections load on selection.
             }
         };
         if load {
@@ -31,6 +32,7 @@ impl App {
                 Tab::Issues => self.load_issues(),
                 Tab::Pulls => self.load_pulls(),
                 Tab::Code => {}
+                Tab::Settings => {}
             }
         }
     }
@@ -115,6 +117,10 @@ impl App {
             }
             Key::Char('a') if plain(mods) => {
                 self.switch_tab(Tab::Actions);
+                return true;
+            }
+            Key::Char(',') if plain(mods) => {
+                self.switch_tab(Tab::Settings);
                 return true;
             }
             Key::Char('r') if plain(mods) => {

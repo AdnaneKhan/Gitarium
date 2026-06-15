@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 use crate::github::{self, Branch, Issue, Job, Pull, Repo, Run, TreeEntry};
 
 use super::issue_detail::Detail;
-use super::{App, Loadable, Msg, RepoFocus, Route, Staged, Tab, TreeRow};
+use super::{App, Loadable, Msg, RepoFocus, Route, SettingsView, Staged, Tab, TreeRow};
 
 pub struct RepoView {
     pub repo: Repo,
@@ -63,6 +63,8 @@ pub struct RepoView {
     pub staged: BTreeMap<String, Staged>,
     /// A staged commit (Git DB blobs→tree→commit→ref) is in flight.
     pub committing: bool,
+    /// The Settings tab's state (section + per-section data + cursors).
+    pub settings: SettingsView,
 }
 
 impl RepoView {
@@ -104,6 +106,7 @@ impl RepoView {
             pending_open_path: None,
             staged: BTreeMap::new(),
             committing: false,
+            settings: SettingsView::default(),
         }
     }
 
