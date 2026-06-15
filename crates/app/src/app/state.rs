@@ -291,9 +291,11 @@ pub enum ConfirmAction {
     DeleteSecret { repo: String, name: String },
     DeleteVariable { repo: String, name: String },
     DeleteDeployKey { repo: String, id: i64 },
-    /// Remove a collaborator, delete a webhook (Settings tab), and the General
-    /// danger zone: archive / permanently delete the repository.
+    /// Remove a collaborator, cancel a pending invite, delete a webhook
+    /// (Settings tab), and the General danger zone: archive / permanently
+    /// delete the repository.
     RemoveCollaborator { repo: String, user: String },
+    CancelInvitation { repo: String, invite_id: i64 },
     DeleteWebhook { repo: String, id: i64 },
     ArchiveRepo { repo: String },
     DeleteRepo { repo: String },
@@ -369,6 +371,8 @@ pub enum Click {
     SettingsEdit,
     SettingsDelete,
     SettingsCycleChip,
+    /// Click a simple-form input field → focus it (index into `fields`).
+    SettingsFocusField(usize),
     /// Webhook (Multi) form: cycle the content-type chip, toggle one event row.
     SettingsCycleContentType,
     SettingsToggleEvent(usize),

@@ -144,7 +144,16 @@ fn deploy_keys_rows(app: &App) -> (Vec<(String, String)>, Option<(&'static str, 
 }
 
 fn collaborators_rows(app: &App) -> (Vec<(String, String)>, Option<(&'static str, bool)>) {
-    list_state(app.rv.as_ref().map(|rv| &rv.settings.collaborators), |c| (c.login.clone(), c.role().to_string()))
+    list_state(app.rv.as_ref().map(|rv| &rv.settings.collaborators), |c| {
+        // Pending invitations (not yet accepted) are flagged so they read
+        // distinctly from active collaborators.
+        let role = if c.pending {
+            format!("pending · {}", c.role())
+        } else {
+            c.role().to_string()
+        };
+        (c.login.clone(), role)
+    })
 }
 
 fn webhooks_rows(app: &App) -> (Vec<(String, String)>, Option<(&'static str, bool)>) {

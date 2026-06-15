@@ -47,19 +47,22 @@ impl App {
 
     pub(crate) fn request_delete_collaborator(&mut self) {
         let Some(rv) = self.rv.as_ref() else { return };
-        let Some(user) = rv
-            .settings
-            .collaborators
-            .ready()
-            .and_then(|v| v.get(rv.settings.list_sel))
-            .map(|c| c.login.clone())
-        else {
+        let Some(c) = rv.settings.collaborators.ready().and_then(|v| v.get(rv.settings.list_sel)) else {
             return;
         };
         let repo = rv.repo.full_name.clone();
-        self.overlay = Some(Overlay::Confirm {
-            msg: format!("remove {}?", user),
-            action: ConfirmAction::RemoveCollaborator { repo, user },
+        let user = c.login.clone();
+        // A pending invite is cancelled via the invitations endpoint (the user
+        // isn't a collaborator yet); an accepted collaborator is removed by login.
+        self.overlay = Some(match c.invite_id {
+            Some(invite_id) => Overlay::Confirm {
+                msg: format!("cancel invitation to {}?", user),
+                action: ConfirmAction::CancelInvitation { repo, invite_id },
+            },
+            None => Overlay::Confirm {
+                msg: format!("remove {}?", user),
+                action: ConfirmAction::RemoveCollaborator { repo, user },
+            },
         });
     }
 
@@ -73,6 +76,20 @@ impl App {
         self.toast = Some(("removing…".into(), false));
         crate::spawn_msg(async move {
             let result = github::remove_collaborator(&token, &full, &user).await;
+            Msg::SettingsMutated { repo: full, section: SettingsSection::Collaborators, result }
+        });
+    }
+
+    pub(crate) fn do_cancel_invitation(&mut self, repo: String, invite_id: i64) {
+        let Some(rv) = self.rv.as_ref() else { return };
+        if rv.repo.full_name != repo {
+            return;
+        }
+        let token = self.token.clone();
+        let full = rv.repo.full_name.clone();
+        self.toast = Some(("canceling invite…".into(), false));
+        crate::spawn_msg(async move {
+            let result = github::cancel_invitation(&token, &full, invite_id).await;
             Msg::SettingsMutated { repo: full, section: SettingsSection::Collaborators, result }
         });
     }

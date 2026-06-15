@@ -73,11 +73,22 @@ pub enum SettingsData {
 
 /// A repository collaborator. `permissions` mirrors the repo `Permissions`
 /// shape; the effective role is derived from it (admin → push → triage → read).
+/// A `pending` row is a synthesized invitation (invited but not yet accepted),
+/// folded into the list so it shows until accepted — see [`from_invitation`].
+///
+/// [`from_invitation`]: Collaborator::from_invitation
 #[derive(Deserialize, Clone, Debug)]
 pub struct Collaborator {
     pub login: String,
     #[serde(default)]
     pub permissions: Option<crate::github::Permissions>,
+    /// True when this row is a pending invitation, not an accepted collaborator.
+    #[serde(default)]
+    pub pending: bool,
+    /// The invitation id (pending rows only) — used to cancel the invite via the
+    /// invitations endpoint; accepted collaborators are removed by login.
+    #[serde(default)]
+    pub invite_id: Option<i64>,
 }
 
 impl Collaborator {
@@ -92,6 +103,48 @@ impl Collaborator {
             _ => "read",
         }
     }
+
+    /// Synthesize a pending-invitation row from an [`Invitation`]. The
+    /// invitations endpoint returns a role *string*, so it's mapped back to the
+    /// `Permissions` shape `role()` expects.
+    pub fn from_invitation(inv: Invitation) -> Self {
+        Collaborator {
+            login: inv.invitee.map(|u| u.login).unwrap_or_default(),
+            permissions: Some(perms_from_role(&inv.permissions)),
+            pending: true,
+            invite_id: Some(inv.id),
+        }
+    }
+}
+
+/// Map an invitation's role string ("read"|"triage"|"write"|"maintain"|"admin")
+/// to the cumulative `Permissions` flags a collaborator of that role carries.
+fn perms_from_role(role: &str) -> crate::github::Permissions {
+    let (admin, maintain, push, triage) = match role {
+        "admin" => (true, true, true, true),
+        "maintain" => (false, true, true, true),
+        "write" => (false, false, true, true),
+        "triage" => (false, false, false, true),
+        _ => (false, false, false, false), // "read"
+    };
+    crate::github::Permissions { admin, maintain, push, triage, pull: true }
+}
+
+/// A pending repository invitation (invited, not yet accepted). GitHub returns
+/// the invitee and a role *string* rather than the collaborator `permissions`
+/// object, so it has its own type and is folded into the collaborator list.
+#[derive(Deserialize, Clone, Debug)]
+pub struct Invitation {
+    pub id: i64,
+    #[serde(default)]
+    pub invitee: Option<InviteUser>,
+    #[serde(default)]
+    pub permissions: String,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct InviteUser {
+    pub login: String,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]

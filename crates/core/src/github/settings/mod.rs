@@ -11,7 +11,7 @@ mod types;
 mod variables;
 mod webhooks;
 
-pub use collaborators::{add_collaborator, list_collaborators, remove_collaborator};
+pub use collaborators::{add_collaborator, cancel_invitation, list_collaborators, remove_collaborator};
 pub use deploy_keys::{add_deploy_key, delete_deploy_key, list_deploy_keys};
 pub use general::{archive_repo, delete_repo, update_repo};
 pub use secrets::{delete_secret, get_public_key, list_secrets, put_secret};

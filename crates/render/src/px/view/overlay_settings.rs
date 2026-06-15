@@ -47,6 +47,7 @@ impl View {
             y += self.f(16.0);
             let fr = RectF::new(lx, y, fw, self.f(36.0));
             self.input_field(dl, atlas, input, fr, focus == i);
+            self.clicks.push((fr, Click::SettingsFocusField(i)));
             if *readonly {
                 let tw = dl.text_width(atlas, UI, self.f(10.0), "read-only", 0.0);
                 dl.text(atlas, UI, self.f(10.0), fr.right() - tw - self.f(8.0), fr.y + self.f(4.0), "read-only", DIM, 0.0);

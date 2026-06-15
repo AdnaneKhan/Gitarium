@@ -299,6 +299,9 @@ impl App {
                     ConfirmAction::RemoveCollaborator { repo, user } => {
                         self.do_remove_collaborator(repo, user)
                     }
+                    ConfirmAction::CancelInvitation { repo, invite_id } => {
+                        self.do_cancel_invitation(repo, invite_id)
+                    }
                     ConfirmAction::DeleteWebhook { repo, id } => self.do_delete_webhook(repo, id),
                     ConfirmAction::ArchiveRepo { repo } => self.do_archive_repo(repo),
                     ConfirmAction::DeleteRepo { repo } => self.do_delete_repo(repo),

@@ -123,6 +123,30 @@ impl App {
         }
     }
 
+    /// Click a simple-form input field → move focus to it (mirrors Tab
+    /// landing on that field). Out-of-range indices are ignored.
+    pub(crate) fn settings_focus_field(&mut self, i: usize) {
+        if let Some(Overlay::SettingsForm(SettingsForm::Simple { fields, focus, .. })) = &mut self.overlay {
+            if i < fields.len() {
+                *focus = i;
+            }
+        }
+    }
+
+    /// Click the simple form's chip → cycle its selection + focus it (mirrors
+    /// the ←/→ keys; focusing it makes those keys act on it next).
+    pub(crate) fn settings_cycle_chip(&mut self) {
+        if let Some(Overlay::SettingsForm(SettingsForm::Simple { fields, chip, focus, .. })) = &mut self.overlay {
+            if let Some(c) = chip {
+                let m = c.options.len();
+                if m > 0 {
+                    c.sel = (c.sel + 1) % m;
+                }
+                *focus = fields.len(); // the chip is the last control
+            }
+        }
+    }
+
     /// Click on the webhook form's content-type chip → cycle + focus it
     /// (mirrors the ←/→ keys).
     pub(crate) fn settings_cycle_content_type(&mut self) {
