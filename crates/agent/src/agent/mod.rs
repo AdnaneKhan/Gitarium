@@ -15,7 +15,7 @@ mod prompts;
 mod tests;
 mod tools;
 
-pub use calls::{parse_tool_calls, tool_result_block};
+pub use calls::{parse_tool_calls, tool_result_block, ToolCall};
 pub use exec::exec;
 
 use serde_json::{json, Value};

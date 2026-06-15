@@ -24,6 +24,14 @@ impl ToolCall {
         }
     }
 
+    /// True for tool calls that change server state: any non-GET
+    /// `github_api` request. The shell/search tools only read the in-memory
+    /// VFS, so they never mutate anything. Used by the interactive app to
+    /// gate writes behind manual approval (the headless agent ignores this).
+    pub fn is_mutating(&self) -> bool {
+        matches!(self, ToolCall::Github { method, .. } if !method.eq_ignore_ascii_case("GET"))
+    }
+
     pub fn label(&self) -> String {
         let trunc = |s: &str| {
             let t: String = s.chars().take(70).collect();

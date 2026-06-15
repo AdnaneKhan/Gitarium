@@ -69,3 +69,23 @@ fn empty_results_guide_the_agent() {
     let out = format_code_search(&res, 1);
     assert!(out.contains("no matches"), "{}", out);
 }
+
+#[test]
+fn only_non_get_github_calls_are_mutating() {
+    let content = json!([
+        {"type": "tool_use", "id": "g", "name": "github_api",
+         "input": {"method": "GET", "path": "/user"}},
+        {"type": "tool_use", "id": "p", "name": "github_api",
+         "input": {"method": "post", "path": "/repos/o/n/issues", "body": {"title": "x"}}},
+        {"type": "tool_use", "id": "d", "name": "github_api",
+         "input": {"method": "DELETE", "path": "/repos/o/n/git/refs/heads/x"}},
+        {"type": "tool_use", "id": "b", "name": "bash", "input": {"command": "ls /"}},
+    ]);
+    let calls = parse_tool_calls(&content);
+    // GET reads, bash over the VFS, and search never mutate; POST/PUT/PATCH/
+    // DELETE github_api calls do (case-insensitively).
+    assert!(!calls[0].is_mutating(), "GET must not gate");
+    assert!(calls[1].is_mutating(), "lowercase post must gate");
+    assert!(calls[2].is_mutating(), "DELETE must gate");
+    assert!(!calls[3].is_mutating(), "bash is VFS-only, never mutates");
+}
